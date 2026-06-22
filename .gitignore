@@ -1,3 +1,6 @@
-# Игнорируемые файлы (все равно никто не будет читать этот файл):
+# Старые артефакты Arduino IDE
 /build/
+.pio/
 pass.txt
+.claude
+Ypravlenie.code-workspace

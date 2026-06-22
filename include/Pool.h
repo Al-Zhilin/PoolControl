@@ -1,11 +1,23 @@
+// ChechKoeff определён раньше Pool(), т.к. Pool() его вызывает
+float ChechKoeff() {
+  float razn = temp[2] - temp[1];
+
+  if (razn > -2)  return 1.0;
+  else if (razn <= -2 && razn > -4)  return 1.5;
+  else if (razn <= -4 && razn > -7)  return 2.0;
+  else if (razn <= -7)  return 3.0;
+
+  return 1.0;
+}
+
 void Pool() {
   static uint32_t try_timer = 0, timer_delay = 0;
   static bool first_on = true;
   static float koeff = 1.0;
 
   FB_Time t = bot.getTime(3);
-  
-  if (!internet || (t.hour >= 7 && (t.hour < 19 || (t.hour == 19 && t.minute <= 30)))) {        //подходящий прайм тайм или нет интернета    
+
+  if (!internet || (t.hour >= 7 && (t.hour < 19 || (t.hour == 19 && t.minute <= 30)))) {        //подходящий прайм тайм или нет интернета
     if (!Relays[0] && (millis() - timer_delay >= ON_PERIOD * koeff || first_on)) {
       first_on = false;
       try_timer = millis();
@@ -39,15 +51,4 @@ void Pool() {
     Relays[0] = false;
     Rele(1, Relays[0]);
   }
-}
-
-float ChechKoeff() {
-  float razn = temp[2] - temp[1];
-
-  if (razn > -2)  return 1.0;
-  else if (razn <= -2 && razn > -4)  return 1.5;
-  else if (razn <= -4 && razn > -7)  return 2.0;
-  else if (razn <= -7)  return 3.0;
-
-  return 1.0;
 }

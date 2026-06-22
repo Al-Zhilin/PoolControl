@@ -1,3 +1,5 @@
+// подключение библиотек
+#include <Arduino.h>
 #include <GyverDS18Array.h>
 #include <WiFi.h>
 #include <FastBot.h>
@@ -41,22 +43,35 @@ uint64_t addr[] = {
 GyverDS18Array ds(14, addr, 3);
 FastBot bot(bot_token);
 
+// файлы проекта — после глобальных переменных, иначе функции не видят их
+// Rele.h первым: его вызывают Pool.h и Sborka.h
+#include "include/Rele.h"
+#include "include/WiFiConnect.h"
+#include "include/Pool.h"
+#include "include/Sborka.h"
+#include "include/EEPROMFuncs.h"
+#include "include/TempReading.h"
+#include "include/HTTPGET.h"
+#include "include/PingCheck.h"
+
+// newMsg определён ниже setup(), поэтому нужен прототип
+void newMsg(FB_msg& msg);
 
 void setup() {
-  ArduinoOTA.setHostname(OTA_NAME);    
-  ArduinoOTA.setPassword(OTA_PASS); 
+  ArduinoOTA.setHostname(OTA_NAME);
+  ArduinoOTA.setPassword(OTA_PASS);
 
   ConnectWiFi();
 
   EEPROM.begin(9);             //0 - 4096 байт
 
   Serial.begin(115200);
-  
+
   bot.setChatID(chat_id);
   bot.setPeriod(500);
   bot.setLimit(1);
   bot.clearServiceMessages(1);
-  
+
   pinMode(RELE1, OUTPUT);
   pinMode(RELE2, OUTPUT);
   pinMode(RELE3, OUTPUT);
@@ -65,12 +80,12 @@ void setup() {
   digitalWrite(RELE2, HIGH);
   digitalWrite(RELE3, HIGH);
   digitalWrite(RELE4, HIGH);
-  
+
   ds.requestTemp();
 
   bot.attach(newMsg);
   bot.unpinAll();
-  bot.sendMessage("Здравствуйте!\nПосмотреть графики: " + String(OPEN_M_LINK));      
+  bot.sendMessage("Здравствуйте!\nПосмотреть графики: " + String(OPEN_M_LINK));
   bot.sendMessage("скоро здесь будет температура");
   TempID = bot.lastBotMsg();
   startUnix = bot.getUnix();
@@ -90,14 +105,14 @@ void setup() {
   Pingyem();
 }
 
-void newMsg(FB_msg& msg) { 
+void newMsg(FB_msg& msg) {
   if (msg.unix < startUnix) return;
 
   if (msg.text == "/рез") {
     bot.sendMessage("Есть!");
     ESP.restart();
   }
-  
+
   if (msg.text == "вкл") {
     bot.sendMessage("угу");
     Rele(1, 1);
@@ -138,28 +153,24 @@ void newMsg(FB_msg& msg) {
         Relays[0] = !Relays[0];
         SborkaMenu(1);
       }
-      //else SborkaMenu(0);
     }
     if (msg.text.startsWith("Реле2")) {
       if (!auto_mode[1])  {
         Relays[1] = !Relays[1];
         SborkaMenu(1);
       }
-      //else SborkaMenu(0);
     }
     if (msg.text.startsWith("Реле3")) {
       if (!auto_mode[2])  {
         Relays[2] = !Relays[2];
         SborkaMenu(1);
       }
-      //else SborkaMenu(0);
     }
     if (msg.text.startsWith("Реле4")) {
       if (!auto_mode[3])  {
         Relays[3] = !Relays[3];
         SborkaMenu(1);
       }
-      //else SborkaMenu(0);
     }
     bot.deleteMessage(bot.lastUsrMsg());
   }
@@ -177,9 +188,9 @@ void newMsg(FB_msg& msg) {
     if (msg.text.startsWith("P4")) {
       auto_mode[3] = !auto_mode[3];
     }
-    
+
     SborkaMenu(2);
-    
+
     bot.deleteMessage(bot.lastUsrMsg());
   }
 
@@ -193,7 +204,7 @@ void loop() {
   static uint32_t pool_timer = millis(), ping_timer = millis(), reconnect_timer = millis();
   static bool int_res = !internet;
   FB_Time t = bot.getTime(3);
-  
+
   ArduinoOTA.handle();
 
   if (!internet)  {
@@ -207,7 +218,7 @@ void loop() {
   if (int_res && internet)  {
       ESP.restart();
   }
-  
+
   if (auto_mode[0] && millis() - pool_timer >= POOL_PERIOD) {
     pool_timer = millis();
     Pool();
@@ -227,7 +238,7 @@ void loop() {
     eeauto_flag = false;
     WriteEepromAuto();
   }
-  
+
   static uint32_t get_per = 0, upd_per = 0;
   bot.tick();
 

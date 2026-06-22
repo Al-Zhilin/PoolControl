@@ -1,4 +1,3 @@
-
 void SborkaMenu(byte is_eeprom) {
   String mainMenu = F("");
 
@@ -45,20 +44,18 @@ void SborkaMenu(byte is_eeprom) {
       mainMenu += "\t";
       mainMenu += "На главную";
       break;
-       
-
   }
+
   if (is_eeprom == 1) {
     eerele_flag = true;
     eerele_timer = millis();
   }
 
   if (is_eeprom == 2) {
-    
     eeauto_flag = true;
     eeauto_timer = millis();
   }
-  
+
   bot.showMenuText("Меню ------------------------------> ⬇️", mainMenu);
   if (mainMenuID != 0)  bot.deleteMessage(mainMenuID);
   mainMenuID = bot.lastBotMsg();
