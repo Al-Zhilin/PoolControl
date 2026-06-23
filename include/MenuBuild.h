@@ -56,7 +56,7 @@ void SborkaMenu(byte is_eeprom) {
     eeauto_timer = millis();
   }
 
-  bot.showMenuText("Меню ------------------------------> ⬇️", mainMenu);
-  if (mainMenuID != 0)  bot.deleteMessage(mainMenuID);
-  mainMenuID = bot.lastBotMsg();
+  //bot.showMenuText("Меню ------------------------------> ⬇️", mainMenu);
+  //if (mainMenuID != 0)  bot.deleteMessage(mainMenuID);
+  //mainMenuID = bot.lastBotMsg();
 }

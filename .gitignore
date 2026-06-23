@@ -1,6 +1,6 @@
 # Старые артефакты Arduino IDE
 /build/
 .pio/
-pass.txt
+pass.h
 .claude
 Ypravlenie.code-workspace

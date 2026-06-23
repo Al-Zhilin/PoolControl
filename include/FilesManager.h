@@ -1,4 +1,4 @@
-void INIT_EEPROM() {
+/*void INIT_EEPROM() {
   EEPROM.put(1, 0);      //Relays
   EEPROM.put(5, 1111);   //auto_mode
 }
@@ -41,4 +41,4 @@ void WriteEepromAuto() {
   String str = "" + String(auto_mode[0]) + String(auto_mode[1]) + String(auto_mode[2]) + String(auto_mode[3]);
   EEPROM.put(5, str.toInt());
   EEPROM.commit();
-}
+}*/

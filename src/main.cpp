@@ -2,12 +2,14 @@
 #include <Arduino.h>
 #include <GyverDS18Array.h>
 #include <WiFi.h>
-#include <FastBot.h>
 #include <HTTPClient.h>
+#include <WiFiClientSecure.h>
 #include <ArduinoOTA.h>
-#include <EEPROM.h>
 #include <ESP32Ping.h>
-#include "pass.txt"
+#include <time.h>
+#include "Config.h"
+#include "pass.h"
+
 
 #define INIT_ADDR 0                                                                 //ячейка с ключом
 #define INIT_KEY 52                                                                 //ключ для проведения инициальзации всех байтов EEPROM (0 - 255)
@@ -27,6 +29,14 @@
 #define PING_PERIOD 60 * 1000                                                       //период между пинг запросами
 #define RECONNECT_PERIOD 2 * 60 * 1000                                              //период между попытками переподключения WiFi при его потере
 
+// очередь между задачей, обрабатывающей LongPoll (ядро 0) и основным кодом (ядро 1)
+QueueHandle_t vkEventQueue;
+
+struct VKEvent {
+    char type[16];          // тип: message_new / message_event
+    char text[64];          // текст команды или payload кнопок
+    int32_t user_id;
+};
 
 uint32_t startUnix;
 int32_t mainMenuID = 0, TempID = 0, eerele_timer = 0, eeauto_timer = 0;
@@ -41,36 +51,68 @@ uint64_t addr[] = {
 };
 
 GyverDS18Array ds(14, addr, 3);
-FastBot bot(bot_token);
+//FastBot bot(bot_token);
 
 // файлы проекта — после глобальных переменных, иначе функции не видят их
 // Rele.h первым: его вызывают Pool.h и Sborka.h
 #include "include/Rele.h"
 #include "include/WiFiConnect.h"
 #include "include/Pool.h"
-#include "include/Sborka.h"
-#include "include/EEPROMFuncs.h"
+#include "include/MenuBuild.h"
+#include "include/FilesManager.h"
 #include "include/TempReading.h"
 #include "include/HTTPGET.h"
 #include "include/PingCheck.h"
+#include "include/VKBot.h"
+
 
 // newMsg определён ниже setup(), поэтому нужен прототип
-void newMsg(FB_msg& msg);
+//void newMsg(FB_msg& msg);
 
 void setup() {
+  // --- Настройки OTA ---
   ArduinoOTA.setHostname(OTA_NAME);
   ArduinoOTA.setPassword(OTA_PASS);
-
+  
+  // --- WiFi и Serial для отладки ---
   ConnectWiFi();
-
-  EEPROM.begin(9);             //0 - 4096 байт
-
   Serial.begin(115200);
 
-  bot.setChatID(chat_id);
-  bot.setPeriod(500);
+  // --- Начинаем LongPolling с VK ---
+  VKLongPollInit();
+
+  // --- Настраиваем задачу с LongPoll на ядро 0 и осздаем очередь для ивентов ВК
+  vkEventQueue = xQueueCreate(5, sizeof(VKEvent));              // 5 объектов структуры VKEvent
+  xTaskCreatePinnedToCore(
+    vkLongPollTask,
+    "VKLongPoll",
+    8192,
+    NULL,
+    1,
+    NULL,
+    0
+  );
+
+  // --- Синхронизация NTP с ожиданием или выходом по истечении попыток ---
+  configTime(10800, 0, "pool.ntp.org");
+  struct tm t;
+  uint8_t wait_sync_retry = 0;
+  Serial.print("Wait NTP sync ");
+  while (!getLocalTime(&t) && wait_sync_retry < 10)   {         // 10 * 200 = 2000мс хватит, чтобы первая попытки синхронизации завершилась. Далее - автоматически реконнект под капотом
+    delay(200);
+    Serial.print(".");
+    wait_sync_retry++;
+  }
+  if (wait_sync_retry == 10)    Serial.println("Sync attemps in over!");
+  else Serial.println("Successfully NTP sync!");
+
+
+  //EEPROM.begin(9);             //0 - 4096 байт
+
+  //bot.setChatID(chat_id);
+  /*bot.setPeriod(500);
   bot.setLimit(1);
-  bot.clearServiceMessages(1);
+  bot.clearServiceMessages(1);*/
 
   pinMode(RELE1, OUTPUT);
   pinMode(RELE2, OUTPUT);
@@ -83,129 +125,38 @@ void setup() {
 
   ds.requestTemp();
 
-  bot.attach(newMsg);
+  /*.attach(newMsg);
   bot.unpinAll();
   bot.sendMessage("Здравствуйте!\nПосмотреть графики: " + String(OPEN_M_LINK));
   bot.sendMessage("скоро здесь будет температура");
   TempID = bot.lastBotMsg();
   startUnix = bot.getUnix();
-  bot.pinMessage(bot.lastBotMsg());
+  bot.pinMessage(bot.lastBotMsg());*/
 
-  if (EEPROM.read(INIT_ADDR) != INIT_KEY) {
+  /*if (EEPROM.read(INIT_ADDR) != INIT_KEY) {
     EEPROM.put(INIT_ADDR, INIT_KEY);
     INIT_EEPROM();
     EEPROM.commit();
-  }
+  }*/
 
-  START_EEPROM();
+  //START_EEPROM();
   ArduinoOTA.begin();
+  // SborkaMenu(0);
+  Pinging();
 
-  SborkaMenu(0);
-
-  Pingyem();
 }
-
-void newMsg(FB_msg& msg) {
-  if (msg.unix < startUnix) return;
-
-  if (msg.text == "/рез") {
-    bot.sendMessage("Есть!");
-    ESP.restart();
-  }
-
-  if (msg.text == "вкл") {
-    bot.sendMessage("угу");
-    Rele(1, 1);
-  }
-
-  if (msg.text == "выкл") {
-    bot.sendMessage("угу");
-    Rele(1, 0);
-  }
-
-  if (msg.text == "Обновить") {
-    bot.deleteMessage(bot.lastUsrMsg());
-    SborkaMenu(0);
-  }
-
-  if (msg.text == "Настройки") {
-    bot.deleteMessage(bot.lastUsrMsg());
-    fazaMenu = 1;
-    SborkaMenu(0);
-  }
-
-  if (msg.text == "На главную") {
-    bot.deleteMessage(bot.lastUsrMsg());
-    fazaMenu = 0;
-    SborkaMenu(0);
-  }
-
-  if (msg.text == "WDT test") {
-    bot.deleteMessage(bot.lastUsrMsg());
-    bot.sendMessage("WatchDog test...");
-    bot.tickManual();
-    while (true) {;}
-  }
-
-  if (msg.text.startsWith("Реле") && msg.text.length() > 4) {
-    if (msg.text.startsWith("Реле1")) {
-      if (!auto_mode[0])  {
-        Relays[0] = !Relays[0];
-        SborkaMenu(1);
-      }
-    }
-    if (msg.text.startsWith("Реле2")) {
-      if (!auto_mode[1])  {
-        Relays[1] = !Relays[1];
-        SborkaMenu(1);
-      }
-    }
-    if (msg.text.startsWith("Реле3")) {
-      if (!auto_mode[2])  {
-        Relays[2] = !Relays[2];
-        SborkaMenu(1);
-      }
-    }
-    if (msg.text.startsWith("Реле4")) {
-      if (!auto_mode[3])  {
-        Relays[3] = !Relays[3];
-        SborkaMenu(1);
-      }
-    }
-    bot.deleteMessage(bot.lastUsrMsg());
-  }
-
-  if (msg.text.startsWith("P") && msg.text.length() > 1) {
-    if (msg.text.startsWith("P1")) {
-      auto_mode[0] = !auto_mode[0];
-    }
-    if (msg.text.startsWith("P2")) {
-      auto_mode[1] = !auto_mode[1];
-    }
-    if (msg.text.startsWith("P3")) {
-      auto_mode[2] = !auto_mode[2];
-    }
-    if (msg.text.startsWith("P4")) {
-      auto_mode[3] = !auto_mode[3];
-    }
-
-    SborkaMenu(2);
-
-    bot.deleteMessage(bot.lastUsrMsg());
-  }
-
-  if (msg.OTA && msg.text == "upd") bot.update();
-
-  FB_Time t(msg.unix, 3);
-}
-
 
 void loop() {
   static uint32_t pool_timer = millis(), ping_timer = millis(), reconnect_timer = millis();
   static bool int_res = !internet;
-  FB_Time t = bot.getTime(3);
+  //FB_Time t = bot.getTime(3);
 
   ArduinoOTA.handle();
+
+  VKEvent event;
+  if (xQueueReceive(vkEventQueue, &event, 0)) {
+    // Обрабатываем пришедшие события
+  }
 
   if (!internet)  {
     if (WiFi.status() != WL_CONNECTED && millis() - reconnect_timer >= RECONNECT_PERIOD) {
@@ -226,25 +177,25 @@ void loop() {
 
   if (millis() - ping_timer >= PING_PERIOD || (!internet && millis() - ping_timer >= 10 * 1000))  {
     ping_timer = millis();
-    Pingyem();
+    Pinging();
   }
 
   if (eerele_flag && millis() - eerele_timer >= EE_WritePeriod) {
     eerele_flag = false;
-    WriteEepromRele();
+    //WriteEepromRele();
   }
 
   if (eeauto_flag && millis() - eeauto_timer >= EE_WritePeriod) {
     eeauto_flag = false;
-    WriteEepromAuto();
+    //WriteEepromAuto();
   }
 
   static uint32_t get_per = 0, upd_per = 0;
-  bot.tick();
+  //bot.tick();
 
   if (millis() - upd_per >= UPD_PERIOD) {
     upd_per = millis();
-    bot.editMessage(TempID,"Воздух: " + String(temp[0]) + "\nХолодная вода: " + String(temp[1]) + "\nТеплая вода: " + String(temp[2]) + "\nРазница: " + String(temp[2] - temp[1]));
+    //bot.editMessage(TempID,"Воздух: " + String(temp[0]) + "\nХолодная вода: " + String(temp[1]) + "\nТеплая вода: " + String(temp[2]) + "\nРазница: " + String(temp[2] - temp[1]));
   }
 
   if (millis() - get_per >= GET_PERIOD) {

@@ -1,4 +1,5 @@
 // ChechKoeff определён раньше Pool(), т.к. Pool() его вызывает
+// функция вычисляет множитель таймаута между попытками запуска системы, на основе разницы входной/выходной температур
 float ChechKoeff() {
   float razn = temp[2] - temp[1];
 
@@ -15,9 +16,10 @@ void Pool() {
   static bool first_on = true;
   static float koeff = 1.0;
 
-  FB_Time t = bot.getTime(3);
+  struct tm t;
+  bool time_sync = getLocalTime(&t);
 
-  if (!internet || (t.hour >= 7 && (t.hour < 19 || (t.hour == 19 && t.minute <= 30)))) {        //подходящий прайм тайм или нет интернета
+  if (!time_sync || (t.tm_hour >= 7 && (t.tm_hour < 19 || (t.tm_hour == 19 && t.tm_min <= 30)))) {        //подходящий прайм тайм или нет интернета
     if (!Relays[0] && (millis() - timer_delay >= ON_PERIOD * koeff || first_on)) {
       first_on = false;
       try_timer = millis();
