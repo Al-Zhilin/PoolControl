@@ -5,6 +5,22 @@ uint32_t ts = 0;
 
 String VKPoll();
 
+// функция URLencode`ирования сообщения
+String urlEncode(String str) {
+    String encoded = "";
+    for (char c : str) {
+        if (isalnum(c) || c == '-' || c == '_' || c == '.' || c == '~') {
+            encoded += c;
+        } else {
+            char buf[4];
+            snprintf(buf, sizeof(buf), "%%%02X", (uint8_t)c);
+            encoded += buf;
+        }
+    }
+    return encoded;
+}
+
+
 // Отправка простого текстового сообщения
 String VKSendMessage(String data) {
     WiFiClientSecure client;                // для защищенного https
@@ -55,9 +71,10 @@ bool VKLongPollInit() {
             server = doc["response"]["server"].as<String>();
             key = doc["response"]["key"].as<String>();
             ts = doc["response"]["ts"].as<uint32_t>();
+            return true;
         }
 
-        return true;
+        return false;
     }
     http.end();
     return false;
@@ -65,42 +82,62 @@ bool VKLongPollInit() {
 
 // работа с LongPoll
 void vkLongPollTask(void* params) {
+    static uint8_t failed_parsing = 0;  // сколько подряд ошибок поддержания Long Poll сессии произошло
+
     while (true) {
+        if (server == "") {              // инициализация не была запущена ИЛИ мы самостоятельно его инвалидировали при ошибках соединения
+            if (!VKLongPollInit()) {                // если не удалось - попробуем после таймаута
+                vTaskDelay(pdMS_TO_TICKS(7000));
+                continue;
+            }
+        }
+
+
         String body = VKPoll();
 
         JsonDocument doc;
         DeserializationError err = deserializeJson(doc, body);
 
-        if (!err) {
-            ts = doc["ts"].as<uint32_t>();
-            JsonArray updates = doc["updates"].as<JsonArray>();
-
-            // Объект с данными ивента
-
-            for (uint8_t upds = 0; upds < updates.size(); upds++) {         // если событий нет - цикл просто не вызывается и очередь не пополняется
-                VKEvent event;
-                
-                JsonObject upd = updates[upds];
-                strncpy(event.type, upd["type"], sizeof(event.type) - 1);    // message_new или message_event
-                event.type[sizeof(event.type) - 1] = '\0';                  
-
-                if (strcmp(event.type, "message_new") == 0) {
-                    // текстовое сообщение - вложенный объект
-                    strncpy(event.text, upd["object"]["message"]["text"], sizeof(event.text)-1);
-                    event.text[sizeof(event.text) - 1] = '\0';
-                    int32_t from_id = upd["object"]["message"]["from_id"];
-                }
-
-                else if (strcmp(event.type, "message_event") == 0) {
-                    // нажата кнопка - payload это строка
-                    strncpy(event.text, upd["object"]["payload"], sizeof(event.text)-1);
-                    event.text[sizeof(event.text) - 1] = '\0';
-                    event.user_id = upd["object"]["user_id"];
-                    //const char* event_id = upd["object"]["event_id"]; не понятно: нужно ли писать в user_id структуры
-                }
-
-                xQueueSend(vkEventQueue, &event, 0);
+        if (err)    {
+            vTaskDelay(pdMS_TO_TICKS(3000));
+            if (++failed_parsing >= 3)  {       // ошибок больше допустимого кол-ва - инвалидируем ранее инициализироанную сессию и прогоняем Init заново
+                server = "";
+                failed_parsing = 0;
             }
+            continue;
+        }
+        failed_parsing = 0;                     // парсинг удался - значит ответ от сервера пришел корректный - значит сессия Long Poll в норме
+        
+        ts = doc["ts"].as<uint32_t>();
+        JsonArray updates = doc["updates"].as<JsonArray>();
+
+        // Объект с данными ивента
+
+        for (uint8_t upds = 0; upds < updates.size(); upds++) {         // если событий нет - цикл просто не вызывается и очередь не пополняется
+            VKEvent event;
+            
+            JsonObject upd = updates[upds];
+            strncpy(event.type, upd["type"], sizeof(event.type) - 1);    // message_new или message_event
+            event.type[sizeof(event.type) - 1] = '\0';                  
+
+            if (strcmp(event.type, "message_new") == 0) {
+                // текстовое сообщение - вложенный объект
+                strncpy(event.text, upd["object"]["message"]["text"], sizeof(event.text)-1);
+                event.text[sizeof(event.text) - 1] = '\0';
+                event.user_id = upd["object"]["message"]["from_id"];
+            }
+
+            else if (strcmp(event.type, "message_event") == 0) {
+                // нажата кнопка - payload это строка
+                strncpy(event.text, upd["object"]["payload"], sizeof(event.text)-1);
+                event.text[sizeof(event.text) - 1] = '\0';
+                event.user_id = upd["object"]["user_id"];
+                event.peer_id = upd["object"]["peer_id"];
+                strncpy(event.event_id, upd["object"]["event_id"], sizeof(event.event_id)-1);
+                event.event_id[sizeof(event.event_id)-1] = '\0';
+            }
+
+            xQueueSend(vkEventQueue, &event, 0);
         }
     }
 }

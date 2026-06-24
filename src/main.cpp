@@ -36,6 +36,8 @@ struct VKEvent {
     char type[16];          // тип: message_new / message_event
     char text[64];          // текст команды или payload кнопок
     int32_t user_id;
+    int32_t peer_id;
+    char event_id[40];
 };
 
 uint32_t startUnix;
@@ -77,9 +79,6 @@ void setup() {
   // --- WiFi и Serial для отладки ---
   ConnectWiFi();
   Serial.begin(115200);
-
-  // --- Начинаем LongPolling с VK ---
-  VKLongPollInit();
 
   // --- Настраиваем задачу с LongPoll на ядро 0 и осздаем очередь для ивентов ВК
   vkEventQueue = xQueueCreate(5, sizeof(VKEvent));              // 5 объектов структуры VKEvent
