@@ -105,14 +105,6 @@ void setup() {
   if (wait_sync_retry == 10)    Serial.println("Sync attemps in over!");
   else Serial.println("Successfully NTP sync!");
 
-
-  //EEPROM.begin(9);             //0 - 4096 байт
-
-  //bot.setChatID(chat_id);
-  /*bot.setPeriod(500);
-  bot.setLimit(1);
-  bot.clearServiceMessages(1);*/
-
   pinMode(RELE1, OUTPUT);
   pinMode(RELE2, OUTPUT);
   pinMode(RELE3, OUTPUT);
@@ -143,6 +135,18 @@ void setup() {
   // SborkaMenu(0);
   Pinging();
 
+  // --- Отправляем стартовое сообщение ---
+  String resp_body = VKSendMessage("Стартовая загрузка...");
+  JsonDocument doc;
+  DeserializationError err = deserializeJson(doc, resp_body);
+  if (!err) {
+    dashboardMsgID = doc["response"].as<int32_t>();
+    VKEditMessage(buildDashboardText());
+  }
+  else {
+    Serial.println("VK send failed, dashboard will retry on next UPD_PERIOD");
+  }
+
 }
 
 void loop() {
@@ -153,8 +157,14 @@ void loop() {
   ArduinoOTA.handle();
 
   VKEvent event;
-  if (xQueueReceive(vkEventQueue, &event, 0)) {
-    // Обрабатываем пришедшие события
+  if (xQueueReceive(vkEventQueue, &event, 0)) {                 // Обрабатываем пришедшие события
+    if (strcmp(event.type, "message_new") == 0) {
+
+    }
+    
+    else if (strcmp(event.type, "message_event") == 0) {
+        
+    }
   }
 
   if (!internet)  {
@@ -190,11 +200,15 @@ void loop() {
   }
 
   static uint32_t get_per = 0, upd_per = 0;
-  //bot.tick();
 
   if (millis() - upd_per >= UPD_PERIOD) {
     upd_per = millis();
-    //bot.editMessage(TempID,"Воздух: " + String(temp[0]) + "\nХолодная вода: " + String(temp[1]) + "\nТеплая вода: " + String(temp[2]) + "\nРазница: " + String(temp[2] - temp[1]));
+    if (!dashboardMsgID) {
+        String resp = VKSendMessage("Стартовая загрузка...");
+        JsonDocument doc;
+        if (!deserializeJson(doc, resp))    dashboardMsgID = doc["response"].as<int32_t>();
+    }
+    if (dashboardMsgID) VKEditMessage(buildDashboardText());
   }
 
   if (millis() - get_per >= GET_PERIOD) {

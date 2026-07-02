@@ -2,6 +2,7 @@
 
 String server = "", key = "";
 uint32_t ts = 0;
+int32_t dashboardMsgID = 0;
 
 String VKPoll();
 
@@ -20,7 +21,6 @@ String urlEncode(String str) {
     return encoded;
 }
 
-
 // Отправка простого текстового сообщения
 String VKSendMessage(String data) {
     WiFiClientSecure client;                // для защищенного https
@@ -33,7 +33,7 @@ String VKSendMessage(String data) {
     String payload = "peer_id=";
     payload += VK_PEER_ID;
     payload += "&message=";
-    payload += data;
+    payload += urlEncode(data);
     payload += "&random_id=";
     payload += String(esp_random() & 0x7FFFFFFF);
     payload += "&access_token=";
@@ -142,6 +142,7 @@ void vkLongPollTask(void* params) {
     }
 }
 
+// Long Polling запрос и возврат ответа от сервера
 String VKPoll() {
     WiFiClientSecure client;
     client.setInsecure();
@@ -158,4 +159,127 @@ String VKPoll() {
     }
     http.end();
     return "Error, code: " + String(return_code);
+}
+
+// функция построения JSON клавиатуры из текущего состояния Relays[] и auto_mode[]
+String buildKeyboard() {
+    String keyboard = "{\"inline\":true,\"buttons\":[";
+    for (uint8_t i = 0; i < 4; i++) {
+        String label = "Pеле" + String(i+1) + " [";
+        label += Relays[i] ? "✅" : "❌";
+        label += "],";
+        label += auto_mode[i] ? "авто" : "ручное";
+        String payload = "{\\\"a\\\":\\\"relay\\\",\\\"n\\\":" + String(i) + "}";
+
+        keyboard += "[{\"action\":{\"type\":\"callback\",\"label\":\"";
+        keyboard += label;
+        keyboard += "\",\"payload\":\"";
+        keyboard += payload;
+        keyboard += "\"}}]";
+
+        if (i < 3) keyboard += ",";
+    }
+    keyboard += "]}";
+    return keyboard;
+}
+
+// функция для ответа snackbar-ом на нажатие кнопки
+void VKAnswerCallback(VKEvent &event, String snackbar_text) {
+    WiFiClientSecure client;
+    client.setInsecure();
+
+    HTTPClient http;
+    http.begin(client, "https://api.vk.com/method/messages.sendMessageEventAnswer");
+    http.addHeader("Content-Type", "application/x-www-form-urlencoded");
+
+    String eventData = "{\"type\":\"show_snackbar\",\"text\":\"" + snackbar_text + "\"}";
+
+
+    String payload = "event_id=";
+    payload += event.event_id;
+    payload += "&user_id=";
+    payload += event.user_id;
+    payload += "&peer_id=";
+    payload += event.peer_id;
+    payload += "&event_data=";
+    payload += urlEncode(eventData);
+    payload += "&access_token=";
+    payload += VK_TOKEN;
+    payload += "&v=5.199";
+    
+    http.POST(payload);
+    http.end();
+}
+
+// функция редактирования сообщений
+void VKEditMessage(String text) {
+    if (!dashboardMsgID) return;                // если переменная не содержат корректного ID - нет смысла пытаться редактировать
+
+    WiFiClientSecure client;
+    client.setInsecure();
+
+    HTTPClient http;
+    http.begin(client, "https://api.vk.com/method/messages.edit");
+    http.addHeader("Content-Type", "application/x-www-form-urlencoded");
+    
+    String payload = "peer_id=";
+    payload += VK_PEER_ID;
+    payload += "&message_id=";
+    payload += dashboardMsgID;
+    payload += "&message=";
+    payload += urlEncode(text);
+    payload += "&keyboard=";
+    payload += urlEncode(buildKeyboard());
+    payload += "&access_token=";
+    payload += VK_TOKEN;
+    payload += "&v=5.199";
+
+    int return_code = http.POST(payload);
+    String returned_body = "";
+
+    if (return_code > 0)    returned_body += http.getString();
+    http.end();
+
+    /* 
+    JsonDocument doc;
+    DeserializationError err = deserializeJson(doc, returned_body);
+
+    if (!err) {
+        dashboardMsgID = doc["response"].as<int32_t>();
+    }
+    else {
+        // что делать здесь - надо обговорить стратегию действия
+    }*/
+}
+
+String buildDashboardText() {
+    String text = "";
+
+    text += "Воздух: ";
+    text += String(temp[0], 2);
+    text += "°C\n";
+
+    text += "Холодная вода: ";
+    text += String(temp[1], 2);
+    text += "°C\n";
+
+    text += "Теплая вода: ";
+    text += String(temp[2], 2);
+    text += "°C\n";
+
+    text += "Разница: ";
+    text += String(temp[2] - temp[1], 2);
+    text += "°C\n\n";
+
+    for (uint8_t i = 0; i < 4; i++) {
+        text += "Реле ";
+        text += i+1;
+        text += ": ";
+        text += Relays[i] ? "✅" : "❌";
+        text += " | ";
+        text += auto_mode[i] ? "авто" : "ручной";
+        text += "\n";
+    }
+
+    return text;
 }
