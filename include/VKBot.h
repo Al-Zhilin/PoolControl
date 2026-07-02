@@ -71,7 +71,7 @@ bool VKLongPollInit() {
             server = doc["response"]["server"].as<String>();
             key = doc["response"]["key"].as<String>();
             ts = doc["response"]["ts"].as<uint32_t>();
-            return true;
+            if (server != "") return true;
         }
 
         return false;
@@ -163,22 +163,39 @@ String VKPoll() {
 
 // функция построения JSON клавиатуры из текущего состояния Relays[] и auto_mode[]
 String buildKeyboard() {
-    String keyboard = "{\"inline\":true,\"buttons\":[";
+    String keyboard = "{\"inline\":true,\"buttons\":[[";
+
+    // Собираем кнопки управления Реле
     for (uint8_t i = 0; i < 4; i++) {
         String label = "Pеле" + String(i+1) + " [";
         label += Relays[i] ? "✅" : "❌";
-        label += "],";
-        label += auto_mode[i] ? "авто" : "ручное";
-        String payload = "{\\\"a\\\":\\\"relay\\\",\\\"n\\\":" + String(i) + "}";
+        label += "]";
+        String payload = "{\\\"a\\\":\\\"switch_relay\\\",\\\"n\\\":" + String(i) + "}";
 
-        keyboard += "[{\"action\":{\"type\":\"callback\",\"label\":\"";
+        keyboard += "{\"action\":{\"type\":\"callback\",\"label\":\"";
         keyboard += label;
         keyboard += "\",\"payload\":\"";
         keyboard += payload;
-        keyboard += "\"}}]";
+        keyboard += "\"}}";
 
         if (i < 3) keyboard += ",";
     }
+
+        keyboard += "],[";
+
+    // Кнопки переключения режимов работы Реле
+    for (uint8_t i = 0; i < 4; i++) {
+        String label = auto_mode[i] ? "авто" : "ручн";
+        String payload = "{\\\"a\\\":\\\"switch_relay_mode\\\",\\\"n\\\":" + String(i) + "}";
+        keyboard += "{\"action\":{\"type\":\"callback\",\"label\":\"";
+        keyboard += label;
+        keyboard += "\",\"payload\":\"";
+        keyboard += payload;
+        keyboard += "\"}}";
+
+        if (i < 3) keyboard += ",";
+    }
+
     keyboard += "]}";
     return keyboard;
 }

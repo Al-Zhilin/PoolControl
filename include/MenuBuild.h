@@ -3,43 +3,43 @@ void SborkaMenu(byte is_eeprom) {
 
   switch (fazaMenu) {
     case 0:   //релюшки, обновление состояний реле и вызов настроек
-      for (byte nomer = 0; nomer < 4; nomer++) {
+      for (byte number = 0; number < 4; number++) {
         mainMenu += "Реле";
-        mainMenu = mainMenu + String(nomer + 1);
+        mainMenu = mainMenu + String(number + 1);
 
         mainMenu += " [";
-        if (auto_mode[nomer])  mainMenu += "?";
-        if (Relays[nomer])  mainMenu += "✅]";
+        if (auto_mode[number])  mainMenu += "?";
+        if (Relays[number])  mainMenu += "✅]";
         else  mainMenu += "❌]";
 
-        if (nomer == 1) {
+        if (number == 1) {
           mainMenu += "\n";
         }
 
         else {
           mainMenu += "\t";
         }
-        Rele(nomer+1, Relays[nomer]);
+        SwitchRelayPin(number, Relays[number]);
       }
       mainMenu += "\t Обновить \n Настройки";
       break;
 
     case 1:   //auto mode и кнопка на главную
-      for (byte nomer = 0; nomer < 4; nomer++) {
+      for (byte number = 0; number < 4; number++) {
         mainMenu += "P";
-        mainMenu = mainMenu + String(nomer + 1);
+        mainMenu = mainMenu + String(number + 1);
 
-        if (auto_mode[nomer])  mainMenu += "(автом.)";
+        if (auto_mode[number])  mainMenu += "(автом.)";
         else  mainMenu += " (ручн.)";
 
-        if (nomer == 1) {
+        if (number == 1) {
           mainMenu += "\n";
         }
 
         else {
           mainMenu += "\t";
         }
-        Rele(nomer+1, Relays[nomer]);
+        SwitchRelayPin(number, Relays[number]);
       }
       mainMenu += "\t";
       mainMenu += "На главную";

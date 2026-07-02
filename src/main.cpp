@@ -6,6 +6,7 @@
 #include <WiFiClientSecure.h>
 #include <ArduinoOTA.h>
 #include <ESP32Ping.h>
+#include <TelnetSpy.h>
 #include <time.h>
 #include "Config.h"
 #include "pass.h"
@@ -39,6 +40,29 @@ struct VKEvent {
     int32_t peer_id;
     char event_id[40];
 };
+
+// Заменяем USB Serial на удаленный Telnet порт
+TelnetSpy SerialAndTelnet;
+#define Serial SerialAndTelnet
+
+// --- Глобальный выключатель логирования: 1 - лог включен, 0 - полностью выключен ---
+#define LOG_ENABLED 0
+
+#if LOG_ENABLED
+  #define LOG_BEGIN(baud) do { \
+    SerialAndTelnet.setWelcomeMsg("ESP32 remote console\r\n"); \
+    SerialAndTelnet.setBufferSize(4096); \
+    Serial.begin(baud); \
+  } while (0)
+  #define LOG_HANDLE()    SerialAndTelnet.handle()
+  #define LOG(x)          Serial.print(x)
+  #define LOGln(x)        Serial.println(x)
+#else
+  #define LOG_BEGIN(baud)
+  #define LOG_HANDLE()
+  #define LOG(x)
+  #define LOGln(x)
+#endif
 
 uint32_t startUnix;
 int32_t mainMenuID = 0, TempID = 0, eerele_timer = 0, eeauto_timer = 0;
@@ -78,7 +102,7 @@ void setup() {
   
   // --- WiFi и Serial для отладки ---
   ConnectWiFi();
-  Serial.begin(115200);
+  LOG_BEGIN(115200);          // при LOG_ENABLED 0 весь Telnet-сервис (welcome msg, буфер, begin) не поднимается вовсе
 
   // --- Настраиваем задачу с LongPoll на ядро 0 и осздаем очередь для ивентов ВК
   vkEventQueue = xQueueCreate(5, sizeof(VKEvent));              // 5 объектов структуры VKEvent
@@ -96,14 +120,14 @@ void setup() {
   configTime(10800, 0, "pool.ntp.org");
   struct tm t;
   uint8_t wait_sync_retry = 0;
-  Serial.print("Wait NTP sync ");
+  LOG("Wait NTP sync ");
   while (!getLocalTime(&t) && wait_sync_retry < 10)   {         // 10 * 200 = 2000мс хватит, чтобы первая попытки синхронизации завершилась. Далее - автоматически реконнект под капотом
     delay(200);
-    Serial.print(".");
+    LOG(".");
     wait_sync_retry++;
   }
-  if (wait_sync_retry == 10)    Serial.println("Sync attemps in over!");
-  else Serial.println("Successfully NTP sync!");
+  if (wait_sync_retry == 10)    LOGln("Sync attemps in over!");
+  else LOGln("Successfully NTP sync!");
 
   pinMode(RELE1, OUTPUT);
   pinMode(RELE2, OUTPUT);
@@ -139,12 +163,14 @@ void setup() {
   String resp_body = VKSendMessage("Стартовая загрузка...");
   JsonDocument doc;
   DeserializationError err = deserializeJson(doc, resp_body);
+  LOGln("VKSendMessage raw response: " + resp_body);   // ← добавить
   if (!err) {
     dashboardMsgID = doc["response"].as<int32_t>();
+    LOGln("dashboardMsgID = " + String(dashboardMsgID));  // ← добавить
     VKEditMessage(buildDashboardText());
   }
   else {
-    Serial.println("VK send failed, dashboard will retry on next UPD_PERIOD");
+    LOGln("VK send failed, dashboard will retry on next UPD_PERIOD");
   }
 
 }
@@ -155,15 +181,35 @@ void loop() {
   //FB_Time t = bot.getTime(3);
 
   ArduinoOTA.handle();
+  LOG_HANDLE();
 
   VKEvent event;
   if (xQueueReceive(vkEventQueue, &event, 0)) {                 // Обрабатываем пришедшие события
-    if (strcmp(event.type, "message_new") == 0) {
-
+    if (!strcmp(event.type, "message_new")) {
+        if (!strcmp(event.text, "/status")) {
+            VKEditMessage(buildDashboardText());
+        }
     }
     
-    else if (strcmp(event.type, "message_event") == 0) {
-        
+    else if (!strcmp(event.type, "message_event")) {
+        JsonDocument doc;
+        if (!deserializeJson(doc, event.text)) {
+            String type = doc["a"].as<String>();
+            uint8_t relay_number = doc["n"].as<uint8_t>();
+
+            if (type == "switch_relay") {
+                Relays[relay_number] = !Relays[relay_number];
+                SwitchRelayPin(relay_number, Relays[relay_number]);
+                VKAnswerCallback(event, "Реле" + String(relay_number) + (Relays[relay_number] ? " теперь вкл" : " теперь выкл"));
+            }
+
+            else if (type == "switch_relay_mode") {
+                auto_mode[relay_number] = !auto_mode[relay_number];
+                VKAnswerCallback(event, "Реле" + String(relay_number) + (auto_mode[relay_number] ? " теперь в авто. режиме" : " теперь в ручном режиме"));
+            }
+
+            VKEditMessage(buildDashboardText());
+        }
     }
   }
 

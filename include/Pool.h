@@ -25,7 +25,7 @@ void Pool() {
       try_timer = millis();
       timer_delay = millis();
       Relays[0] = true;
-      Rele(1, Relays[0]);
+      SwitchRelayPin(0, Relays[0]);
     }
 
     if (Relays[0]) {
@@ -35,7 +35,7 @@ void Pool() {
         timer_delay = millis();
         try_timer = millis();
         Relays[0] = false;
-        Rele(1, Relays[0]);
+        SwitchRelayPin(0, Relays[0]);
       }
 
       if (temp[2] - temp[1] <= RAZN_TO_OFF2 && millis() - try_timer >= OFF_PERIOD2) {
@@ -44,13 +44,13 @@ void Pool() {
         timer_delay = millis();
         try_timer = millis();
         Relays[0] = false;
-        Rele(1, Relays[0]);
+        SwitchRelayPin(0, Relays[0]);
       }
     }
   }
 
   else if (Relays[0]) {
     Relays[0] = false;
-    Rele(1, Relays[0]);
+    SwitchRelayPin(0, Relays[0]);
   }
 }
