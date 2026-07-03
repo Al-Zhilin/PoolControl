@@ -43,10 +43,13 @@ struct VKEvent {
 
 // Заменяем USB Serial на удаленный Telnet порт
 TelnetSpy SerialAndTelnet;
+
+// закомментировать 2 строчки, чтобы переключить на Serial
+#undef Serial
 #define Serial SerialAndTelnet
 
 // --- Глобальный выключатель логирования: 1 - лог включен, 0 - полностью выключен ---
-#define LOG_ENABLED 0
+#define LOG_ENABLED 1
 
 #if LOG_ENABLED
   #define LOG_BEGIN(baud) do { \
@@ -120,14 +123,14 @@ void setup() {
   configTime(10800, 0, "pool.ntp.org");
   struct tm t;
   uint8_t wait_sync_retry = 0;
-  LOG("Wait NTP sync ");
+  LOG("Wait NTP sync...");
   while (!getLocalTime(&t) && wait_sync_retry < 10)   {         // 10 * 200 = 2000мс хватит, чтобы первая попытки синхронизации завершилась. Далее - автоматически реконнект под капотом
     delay(200);
-    LOG(".");
+    LOG(" .");
     wait_sync_retry++;
   }
-  if (wait_sync_retry == 10)    LOGln("Sync attemps in over!");
-  else LOGln("Successfully NTP sync!");
+  if (wait_sync_retry == 10)    LOGln("\nSync attemps in over!");
+  else LOGln("\nSuccessfully NTP sync!");
 
   pinMode(RELE1, OUTPUT);
   pinMode(RELE2, OUTPUT);
@@ -163,10 +166,8 @@ void setup() {
   String resp_body = VKSendMessage("Стартовая загрузка...");
   JsonDocument doc;
   DeserializationError err = deserializeJson(doc, resp_body);
-  LOGln("VKSendMessage raw response: " + resp_body);   // ← добавить
   if (!err) {
     dashboardMsgID = doc["response"].as<int32_t>();
-    LOGln("dashboardMsgID = " + String(dashboardMsgID));  // ← добавить
     VKEditMessage(buildDashboardText());
   }
   else {
@@ -200,12 +201,12 @@ void loop() {
             if (type == "switch_relay") {
                 Relays[relay_number] = !Relays[relay_number];
                 SwitchRelayPin(relay_number, Relays[relay_number]);
-                VKAnswerCallback(event, "Реле" + String(relay_number) + (Relays[relay_number] ? " теперь вкл" : " теперь выкл"));
+                VKAnswerCallback(event, "Реле" + String(relay_number+1) + (Relays[relay_number] ? " теперь включено!" : " теперь выключено!"));
             }
 
             else if (type == "switch_relay_mode") {
                 auto_mode[relay_number] = !auto_mode[relay_number];
-                VKAnswerCallback(event, "Реле" + String(relay_number) + (auto_mode[relay_number] ? " теперь в авто. режиме" : " теперь в ручном режиме"));
+                VKAnswerCallback(event, "Реле" + String(relay_number+1) + (auto_mode[relay_number] ? " теперь в автоматическом режиме!" : " теперь в ручном режиме!"));
             }
 
             VKEditMessage(buildDashboardText());

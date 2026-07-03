@@ -129,8 +129,7 @@ void vkLongPollTask(void* params) {
 
             else if (strcmp(event.type, "message_event") == 0) {
                 // нажата кнопка - payload это строка
-                strncpy(event.text, upd["object"]["payload"], sizeof(event.text)-1);
-                event.text[sizeof(event.text) - 1] = '\0';
+                serializeJson(upd["object"]["payload"], event.text, sizeof(event.text));
                 event.user_id = upd["object"]["user_id"];
                 event.peer_id = upd["object"]["peer_id"];
                 strncpy(event.event_id, upd["object"]["event_id"], sizeof(event.event_id)-1);
@@ -167,9 +166,9 @@ String buildKeyboard() {
 
     // Собираем кнопки управления Реле
     for (uint8_t i = 0; i < 4; i++) {
-        String label = "Pеле" + String(i+1) + " [";
+        String label = "P" + String(i+1) + "";
         label += Relays[i] ? "✅" : "❌";
-        label += "]";
+        //label += "]";
         String payload = "{\\\"a\\\":\\\"switch_relay\\\",\\\"n\\\":" + String(i) + "}";
 
         keyboard += "{\"action\":{\"type\":\"callback\",\"label\":\"";
@@ -196,7 +195,7 @@ String buildKeyboard() {
         if (i < 3) keyboard += ",";
     }
 
-    keyboard += "]}";
+    keyboard += "]]}";
     return keyboard;
 }
 
@@ -257,7 +256,7 @@ void VKEditMessage(String text) {
     if (return_code > 0)    returned_body += http.getString();
     http.end();
 
-    /* 
+    /*
     JsonDocument doc;
     DeserializationError err = deserializeJson(doc, returned_body);
 
@@ -288,7 +287,8 @@ String buildDashboardText() {
     text += String(temp[2] - temp[1], 2);
     text += "°C\n\n";
 
-    for (uint8_t i = 0; i < 4; i++) {
+    // статусы Реле в дашборде - не нужны, т.к. чуть ниже есть кнопки, с такой же информативностью
+    /*for (uint8_t i = 0; i < 4; i++) {
         text += "Реле ";
         text += i+1;
         text += ": ";
@@ -296,7 +296,7 @@ String buildDashboardText() {
         text += " | ";
         text += auto_mode[i] ? "авто" : "ручной";
         text += "\n";
-    }
+    }*/
 
     return text;
 }
