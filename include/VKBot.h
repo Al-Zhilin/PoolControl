@@ -92,11 +92,26 @@ void vkLongPollTask(void* params) {
             }
         }
 
-
         String body = VKPoll();
 
         JsonDocument doc;
         DeserializationError err = deserializeJson(doc, body);
+
+        // Возникает, когда сервер ВК специально хочет заново инициализировать сессию/обновить ключ/ts
+        if (!doc["failed"].isNull()) {
+            uint8_t fail_code = doc["failed"].as<uint8_t>();
+            switch (fail_code) {
+                case 1:                     // ts устарел, берем новый из этого же ответа
+                    ts = doc["ts"].as<uint32_t>();
+                    break;
+
+                case 2:                     // истек key, нужен новый VKPollInit()
+                case 3:                     // инвалидна вся сессия, инициализируем заново
+                    server = "";            // для 2 и 3 случаев нужна инициализация, для этого сбрасываем сервер
+                    break;
+            }
+            continue;
+        }
 
         if (err)    {
             vTaskDelay(pdMS_TO_TICKS(3000));
@@ -136,7 +151,7 @@ void vkLongPollTask(void* params) {
                 event.event_id[sizeof(event.event_id)-1] = '\0';
             }
 
-            xQueueSend(vkEventQueue, &event, 0);
+            if (xQueueSend(vkEventQueue, &event, 0) != pdTRUE) LOGln("Ошибка отправки события в очередь! Возможно, она переполнена.");
         }
     }
 }
@@ -149,6 +164,7 @@ String VKPoll() {
     HTTPClient http;
     http.begin(client, server  + "?act=a_check&key=" + key + "&ts=" + ts + "&wait=25");
 
+    http.setTimeout(30000);
     int return_code = http.GET();
 
     if (return_code > 0)    {
@@ -256,47 +272,33 @@ void VKEditMessage(String text) {
     if (return_code > 0)    returned_body += http.getString();
     http.end();
 
-    /*
     JsonDocument doc;
     DeserializationError err = deserializeJson(doc, returned_body);
 
-    if (!err) {
-        dashboardMsgID = doc["response"].as<int32_t>();
-    }
-    else {
-        // что делать здесь - надо обговорить стратегию действия
-    }*/
+    // Ошибка в ответе от сервера/ошибка парсинга ответа
+    if (err || !doc["error"].isNull())  dashboardMsgID = 0;
 }
 
 String buildDashboardText() {
     String text = "";
 
-    text += "Воздух: ";
+    text += "🌡️Воздух: ";
     text += String(temp[0], 2);
     text += "°C\n";
 
-    text += "Холодная вода: ";
+    text += "💧Холодная вода: ";
     text += String(temp[1], 2);
     text += "°C\n";
 
-    text += "Теплая вода: ";
+    text += "🔥Теплая вода: ";
     text += String(temp[2], 2);
     text += "°C\n";
 
-    text += "Разница: ";
+    text += "📊Разница: ";
     text += String(temp[2] - temp[1], 2);
     text += "°C\n\n";
 
-    // статусы Реле в дашборде - не нужны, т.к. чуть ниже есть кнопки, с такой же информативностью
-    /*for (uint8_t i = 0; i < 4; i++) {
-        text += "Реле ";
-        text += i+1;
-        text += ": ";
-        text += Relays[i] ? "✅" : "❌";
-        text += " | ";
-        text += auto_mode[i] ? "авто" : "ручной";
-        text += "\n";
-    }*/
+    
 
     return text;
 }

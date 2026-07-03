@@ -198,16 +198,19 @@ void loop() {
             String type = doc["a"].as<String>();
             uint8_t relay_number = doc["n"].as<uint8_t>();
 
-            if (type == "switch_relay") {
-                Relays[relay_number] = !Relays[relay_number];
-                SwitchRelayPin(relay_number, Relays[relay_number]);
-                VKAnswerCallback(event, "Реле" + String(relay_number+1) + (Relays[relay_number] ? " теперь включено!" : " теперь выключено!"));
-            }
+            if (relay_number < 4) {
+                if (type == "switch_relay") {
+                    Relays[relay_number] = !Relays[relay_number];
+                    SwitchRelayPin(relay_number, Relays[relay_number]);
+                    VKAnswerCallback(event, "Реле" + String(relay_number+1) + (Relays[relay_number] ? " теперь включено!" : " теперь выключено!"));
+                }
 
-            else if (type == "switch_relay_mode") {
-                auto_mode[relay_number] = !auto_mode[relay_number];
-                VKAnswerCallback(event, "Реле" + String(relay_number+1) + (auto_mode[relay_number] ? " теперь в автоматическом режиме!" : " теперь в ручном режиме!"));
+                else if (type == "switch_relay_mode") {
+                    auto_mode[relay_number] = !auto_mode[relay_number];
+                    VKAnswerCallback(event, "Реле" + String(relay_number+1) + (auto_mode[relay_number] ? " теперь в автоматическом режиме!" : " теперь в ручном режиме!"));
+                }
             }
+            else VKSendMessage("Передан некорректный номер Реле для события типа \"" + type + "\"");
 
             VKEditMessage(buildDashboardText());
         }
