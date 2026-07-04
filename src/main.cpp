@@ -95,8 +95,22 @@ GyverDS18Array ds(14, addr, 3);
 #include "include/VKBot.h"
 
 
-// newMsg определён ниже setup(), поэтому нужен прототип
-//void newMsg(FB_msg& msg);
+String resetReasonToString(esp_reset_reason_t reason) {
+    switch (reason) {
+        case ESP_RST_POWERON:   return "Power-on (обычное включение/питание)";
+        case ESP_RST_EXT:       return "Внешний пин";
+        case ESP_RST_SW:        return "Программный (ESP.restart())";
+        case ESP_RST_PANIC:     return "Паника/исключение";
+        case ESP_RST_INT_WDT:   return "Interrupt watchdog";
+        case ESP_RST_TASK_WDT:  return "Task watchdog";
+        case ESP_RST_WDT:       return "Другой watchdog";
+        case ESP_RST_DEEPSLEEP: return "Выход из deep sleep";
+        case ESP_RST_BROWNOUT:  return "Brownout (просадка питания)";
+        case ESP_RST_SDIO:      return "SDIO";
+        default:                return "Неизвестно (код " + String((int)reason) + ")";
+    }
+}
+
 
 void setup() {
   // --- Настройки OTA ---
@@ -105,6 +119,7 @@ void setup() {
   
   // --- WiFi и Serial для отладки ---
   ConnectWiFi();
+  VKSendMessage("Причина перезагрузки: " + resetReasonToString(esp_reset_reason()));
   LOG_BEGIN(115200);          // при LOG_ENABLED 0 весь Telnet-сервис (welcome msg, буфер, begin) не поднимается вовсе
 
   // --- Настраиваем задачу с LongPoll на ядро 0 и осздаем очередь для ивентов ВК
@@ -159,7 +174,6 @@ void setup() {
 
   //START_EEPROM();
   ArduinoOTA.begin();
-  // SborkaMenu(0);
   Pinging();
 
   // --- Отправляем стартовое сообщение ---
@@ -204,14 +218,12 @@ void loop() {
                     SwitchRelayPin(relay_number, Relays[relay_number]);
                     VKAnswerCallback(event, "Реле" + String(relay_number+1) + (Relays[relay_number] ? " теперь включено!" : " теперь выключено!"));
                 }
-
                 else if (type == "switch_relay_mode") {
                     auto_mode[relay_number] = !auto_mode[relay_number];
                     VKAnswerCallback(event, "Реле" + String(relay_number+1) + (auto_mode[relay_number] ? " теперь в автоматическом режиме!" : " теперь в ручном режиме!"));
                 }
             }
             else VKSendMessage("Передан некорректный номер Реле для события типа \"" + type + "\"");
-
             VKEditMessage(buildDashboardText());
         }
     }

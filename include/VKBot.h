@@ -92,6 +92,7 @@ void vkLongPollTask(void* params) {
             }
         }
 
+
         String body = VKPoll();
 
         JsonDocument doc;
@@ -163,8 +164,8 @@ String VKPoll() {
 
     HTTPClient http;
     http.begin(client, server  + "?act=a_check&key=" + key + "&ts=" + ts + "&wait=25");
-
     http.setTimeout(30000);
+
     int return_code = http.GET();
 
     if (return_code > 0)    {
@@ -272,33 +273,46 @@ void VKEditMessage(String text) {
     if (return_code > 0)    returned_body += http.getString();
     http.end();
 
-    JsonDocument doc;
-    DeserializationError err = deserializeJson(doc, returned_body);
-
-    // Ошибка в ответе от сервера/ошибка парсинга ответа
-    if (err || !doc["error"].isNull())  dashboardMsgID = 0;
+    if (return_code <= 0) {
+        dashboardMsgID = 0;                                    // сетевая ошибка - сообщение точно нужно пересоздавать
+    }
+    else if (returned_body.indexOf("\"error\"") != -1) {
+        JsonDocument doc;
+        deserializeJson(doc, returned_body);
+        int error_code = doc["error"]["error_code"] | 0;
+        if (error_code != 9)   dashboardMsgID = 0;             // 9 = flood control - не пересоздаём, просто подождём
+    }
 }
 
 String buildDashboardText() {
     String text = "";
 
-    text += "🌡️Воздух: ";
+    text += "Воздух: ";
     text += String(temp[0], 2);
     text += "°C\n";
 
-    text += "💧Холодная вода: ";
+    text += "Холодная вода: ";
     text += String(temp[1], 2);
     text += "°C\n";
 
-    text += "🔥Теплая вода: ";
+    text += "Теплая вода: ";
     text += String(temp[2], 2);
     text += "°C\n";
 
-    text += "📊Разница: ";
+    text += "Разница: ";
     text += String(temp[2] - temp[1], 2);
     text += "°C\n\n";
 
-    
+    // статусы Реле в дашборде - не нужны, т.к. чуть ниже есть кнопки, с такой же информативностью
+    /*for (uint8_t i = 0; i < 4; i++) {
+        text += "Реле ";
+        text += i+1;
+        text += ": ";
+        text += Relays[i] ? "✅" : "❌";
+        text += " | ";
+        text += auto_mode[i] ? "авто" : "ручной";
+        text += "\n";
+    }*/
 
     return text;
 }
