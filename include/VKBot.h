@@ -152,7 +152,7 @@ void vkLongPollTask(void* params) {
                 event.event_id[sizeof(event.event_id)-1] = '\0';
             }
 
-            if (xQueueSend(vkEventQueue, &event, 0) != pdTRUE) LOGln("Ошибка отправки события в очередь! Возможно, она переполнена.");
+            if (xQueueSend(vkEventQueue, &event, 0) != pdTRUE) ESP_LOGE("EVENT_QUEUE", "Ошибка отправки события в очередь! Возможно, она переполнена.");
         }
     }
 }

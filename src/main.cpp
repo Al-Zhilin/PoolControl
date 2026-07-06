@@ -10,7 +10,11 @@
 #include <time.h>
 #include "Config.h"
 #include "pass.h"
-#include <esp_log.h>
+
+// Устанавливаем "компиляционный потолок" для наших собственных ESP_LOGx в проекте
+#undef LOG_LOCAL_LEVEL
+#define LOG_LOCAL_LEVEL ESP_LOG_DEBUG
+#include "esp_log.h"
 
 
 #define INIT_ADDR 0                                                                 //ячейка с ключом
@@ -30,9 +34,14 @@
 #define POOL_PERIOD 1000                                                            //период между прогонами функции управления бассейном
 #define PING_PERIOD 60 * 1000                                                       //период между пинг запросами
 #define RECONNECT_PERIOD 2 * 60 * 1000                                              //период между попытками переподключения WiFi при его потере
+#define LOG_ENABLED 1                                                               //Глобальный выключатель логирования: 1 - лог включен, 0 - полностью выключен
+#define USING_TELNET_LOG                                                            //Логировать в Telnet или в Serial, если закомментировать эту строку. Не работает при выключенном логировании
 
 // очередь между задачей, обрабатывающей LongPoll (ядро 0) и основным кодом (ядро 1)
 QueueHandle_t vkEventQueue;
+
+// Для Telnet логирования
+TelnetSpy SerialAndTelnet;
 
 struct VKEvent {
     char type[16];          // тип: message_new / message_event
@@ -42,30 +51,17 @@ struct VKEvent {
     char event_id[40];
 };
 
-// Заменяем USB Serial на удаленный Telnet порт
-TelnetSpy SerialAndTelnet;
-
-// закомментировать 2 строчки, чтобы переключить на Serial
-#undef Serial
-#define Serial SerialAndTelnet
-
-// --- Глобальный выключатель логирования: 1 - лог включен, 0 - полностью выключен ---
-#define LOG_ENABLED 1
-
 #if LOG_ENABLED
   #define LOG_BEGIN(baud) do { \
     SerialAndTelnet.setWelcomeMsg("ESP32 remote console\r\n"); \
     SerialAndTelnet.setBufferSize(4096); \
-    Serial.begin(baud); \
+    SerialAndTelnet.setPingTime(0); \
+    SerialAndTelnet.begin(baud); \
   } while (0)
   #define LOG_HANDLE()    SerialAndTelnet.handle()
-  #define LOG(x)          Serial.print(x)
-  #define LOGln(x)        Serial.println(x)
 #else
   #define LOG_BEGIN(baud)
   #define LOG_HANDLE()
-  #define LOG(x)
-  #define LOGln(x)
 #endif
 
 uint32_t startUnix;
@@ -81,10 +77,12 @@ uint64_t addr[] = {
 };
 
 GyverDS18Array ds(14, addr, 3);
-//FastBot bot(bot_token);
+
+// для сохранения оригинальной функции вывода логов. Возможно, будет убрано - пока не имеет надобности
+static vprintf_like_t s_original_vprintf = NULL;
 
 // файлы проекта — после глобальных переменных, иначе функции не видят их
-// Rele.h первым: его вызывают Pool.h и Sborka.h
+#include "include/Debug.h"
 #include "include/Rele.h"
 #include "include/WiFiConnect.h"
 #include "include/Pool.h"
@@ -112,20 +110,26 @@ String resetReasonToString(esp_reset_reason_t reason) {
     }
 }
 
-
 void setup() {
-  // --- Настройки OTA ---
-  ArduinoOTA.setHostname(OTA_NAME);
-  ArduinoOTA.setPassword(OTA_PASS);
-  
-  // --- WiFi и Serial для отладки ---
-  ConnectWiFi();
-  VKSendMessage("Причина перезагрузки: " + resetReasonToString(esp_reset_reason()));
-  LOG_BEGIN(115200);          // при LOG_ENABLED 0 весь Telnet-сервис (welcome msg, буфер, begin) не поднимается вовсе
+    // --- Настройки OTA ---
+    ArduinoOTA.setHostname(OTA_NAME);
+    ArduinoOTA.setPassword(OTA_PASS);
 
-  // --- Настраиваем задачу с LongPoll на ядро 0 и осздаем очередь для ивентов ВК
-  vkEventQueue = xQueueCreate(5, sizeof(VKEvent));              // 5 объектов структуры VKEvent
-  xTaskCreatePinnedToCore(
+    // --- Инициализируем место вывода логов ---
+    LOG_BEGIN(115200);
+
+    s_original_vprintf = esp_log_set_vprintf(my_log_vprintf);
+    esp_log_level_set("*", ESP_LOG_WARN);        // всё по умолчанию тихо
+    esp_log_level_set("NTP", ESP_LOG_DEBUG);
+    esp_log_level_set("VK_API", ESP_LOG_DEBUG);
+    esp_log_level_set("EVENT_QUEUE", ESP_LOG_DEBUG);
+
+    // --- WiFi и Serial для отладки ---
+    ConnectWiFi();
+    VKSendMessage("Причина перезагрузки: " + resetReasonToString(esp_reset_reason()));
+    // --- Настраиваем задачу с LongPoll на ядро 0 и создаем очередь для ивентов ВК
+    vkEventQueue = xQueueCreate(5, sizeof(VKEvent));              // 5 объектов структуры VKEvent
+    xTaskCreatePinnedToCore(
     vkLongPollTask,
     "VKLongPoll",
     8192,
@@ -133,61 +137,61 @@ void setup() {
     1,
     NULL,
     0
-  );
+    );
 
-  // --- Синхронизация NTP с ожиданием или выходом по истечении попыток ---
-  configTime(10800, 0, "pool.ntp.org");
-  struct tm t;
-  uint8_t wait_sync_retry = 0;
-  LOG("Wait NTP sync...");
-  while (!getLocalTime(&t) && wait_sync_retry < 10)   {         // 10 * 200 = 2000мс хватит, чтобы первая попытки синхронизации завершилась. Далее - автоматически реконнект под капотом
+    // --- Синхронизация NTP с ожиданием или выходом по истечении попыток ---
+    configTime(10800, 0, "pool.ntp.org");
+    struct tm t;
+    uint8_t wait_sync_retry = 0;
+    ESP_LOGD("NTP", "Wait NTP sync...");
+    while (!getLocalTime(&t) && wait_sync_retry < 10)   {         // 10 * 200 = 2000мс хватит, чтобы первая попытки синхронизации завершилась. Далее - автоматически реконнект под капотом
     delay(200);
-    LOG(" .");
+    ESP_LOGD("NTP", " .");
     wait_sync_retry++;
-  }
-  if (wait_sync_retry == 10)    LOGln("\nSync attemps in over!");
-  else LOGln("\nSuccessfully NTP sync!");
+    }
+    if (wait_sync_retry == 10)    ESP_LOGD("NTP", "\nSync attemps in over!");
+    else ESP_LOGD("NTP", "Successfully NTP sync!");
 
-  pinMode(RELE1, OUTPUT);
-  pinMode(RELE2, OUTPUT);
-  pinMode(RELE3, OUTPUT);
-  pinMode(RELE4, OUTPUT);
-  digitalWrite(RELE1, HIGH);
-  digitalWrite(RELE2, HIGH);
-  digitalWrite(RELE3, HIGH);
-  digitalWrite(RELE4, HIGH);
+    pinMode(RELE1, OUTPUT);
+    pinMode(RELE2, OUTPUT);
+    pinMode(RELE3, OUTPUT);
+    pinMode(RELE4, OUTPUT);
+    digitalWrite(RELE1, HIGH);
+    digitalWrite(RELE2, HIGH);
+    digitalWrite(RELE3, HIGH);
+    digitalWrite(RELE4, HIGH);
 
-  ds.requestTemp();
+    ds.requestTemp();
 
-  /*.attach(newMsg);
-  bot.unpinAll();
-  bot.sendMessage("Здравствуйте!\nПосмотреть графики: " + String(OPEN_M_LINK));
-  bot.sendMessage("скоро здесь будет температура");
-  TempID = bot.lastBotMsg();
-  startUnix = bot.getUnix();
-  bot.pinMessage(bot.lastBotMsg());*/
+    /*.attach(newMsg);
+    bot.unpinAll();
+    bot.sendMessage("Здравствуйте!\nПосмотреть графики: " + String(OPEN_M_LINK));
+    bot.sendMessage("скоро здесь будет температура");
+    TempID = bot.lastBotMsg();
+    startUnix = bot.getUnix();
+    bot.pinMessage(bot.lastBotMsg());*/
 
-  /*if (EEPROM.read(INIT_ADDR) != INIT_KEY) {
+    /*if (EEPROM.read(INIT_ADDR) != INIT_KEY) {
     EEPROM.put(INIT_ADDR, INIT_KEY);
     INIT_EEPROM();
     EEPROM.commit();
-  }*/
+    }*/
 
-  //START_EEPROM();
-  ArduinoOTA.begin();
-  Pinging();
+    //START_EEPROM();
+    ArduinoOTA.begin();
+    Pinging();
 
-  // --- Отправляем стартовое сообщение ---
-  String resp_body = VKSendMessage("Стартовая загрузка...");
-  JsonDocument doc;
-  DeserializationError err = deserializeJson(doc, resp_body);
-  if (!err) {
+    // --- Отправляем стартовое сообщение ---
+    String resp_body = VKSendMessage("Стартовая загрузка...");
+    JsonDocument doc;
+    DeserializationError err = deserializeJson(doc, resp_body);
+    if (!err) {
     dashboardMsgID = doc["response"].as<int32_t>();
     VKEditMessage(buildDashboardText());
-  }
-  else {
-    LOGln("VK send failed, dashboard will retry on next UPD_PERIOD");
-  }
+    }
+    else {
+    ESP_LOGE("VK_API", "VK send failed, dashboard will retry on next UPD_PERIOD");
+    }
 
 }
 

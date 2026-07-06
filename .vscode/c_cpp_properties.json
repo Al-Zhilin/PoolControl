@@ -722,6 +722,7 @@
                 "PLATFORMIO=60119",
                 "ARDUINO_ESP32_DEV",
                 "CORE_DEBUG_LEVEL=2",
+                "USE_ESP_IDF_LOG=1",
                 "ESP32_ARDUINO_LIB_BUILDER",
                 "ESP_MDNS_VERSION_NUMBER=\"1.11.0\"",
                 "ESP_PLATFORM",
