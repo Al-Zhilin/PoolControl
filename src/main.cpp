@@ -7,6 +7,7 @@
 #include <ArduinoOTA.h>
 #include <ESP32Ping.h>
 #include <TelnetSpy.h>
+#include <LittleFS.h>
 #include <time.h>
 #include "Config.h"
 #include "pass.h"
@@ -117,6 +118,9 @@ void setup() {
 
     // --- Инициализируем место вывода логов ---
     LOG_BEGIN(115200);
+
+    // -- Монтируем файловую систему ---
+    if (!LittleFS.begin(true)) ESP_LOGE("LittleFS", "Ошибка начала работы файловой системы!");
 
     s_original_vprintf = esp_log_set_vprintf(my_log_vprintf);
     esp_log_level_set("*", ESP_LOG_WARN);        // всё по умолчанию тихо
