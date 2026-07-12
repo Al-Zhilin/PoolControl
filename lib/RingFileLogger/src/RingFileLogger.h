@@ -10,7 +10,7 @@ class RingFileLogger : public Print {
             uint16_t maxFilesNum = 2;               // максимальное кол-во файлов. default = 2 штуки
             const char* dirName = "logs";           // имя директории(папки) с логами
             const char* filePrefix = "log";         // префикс имени файлов
-            const char* fileExtension = ".txt";     // расширение файлов
+            const char* fileExtension = ".txt";     // расширение файловИ
         };
 
         enum class Status {
@@ -19,12 +19,13 @@ class RingFileLogger : public Print {
             FILESYSTEM_ERROR,                       // недоступность ФС
             FILE_OPEN_ERROR,                        // не удалось открыть файл
             FILE_CREATE_ERROR,                      // не удалось создать файл
+            FILE_WRITE_ERROR,                       // ошибка записи данных в файл
         };
 
         Status begin(fs::FS& filesys, const Config& cfg = Config{});
-        void flush() override;
         size_t write(uint8_t) override;
         size_t write(const uint8_t*, size_t) override;
+        void flush() override;
         Status clear();
         Status dumpTo(Print&);
 
@@ -55,6 +56,7 @@ class RingFileLogger : public Print {
 
         void rotate();
         String makeFilePath(uint16_t) const;
-        bool readHeader(uint16_t, FileHeader&);
+        String makeDirPath() const;
+        bool readHeader(fs::File&, FileHeader&);
         bool writeHeader(fs::File&, uint32_t generation);
 };
