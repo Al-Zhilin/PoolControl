@@ -37,6 +37,15 @@ bool RingFileLogger::writeHeader(fs::File& file, uint32_t generation) {
     return true;
 }
 
+RingFileLogger::Status RingFileLogger::createFirstFile() {
+    if(!(_file = _filesystem->open(makeFilePath(0), FILE_APPEND))) return Status::FILE_OPEN_ERROR;
+    if (!writeHeader(_file, 1)) return Status::FILE_WRITE_ERROR;
+    _currentFileNum = 0;
+    _currentGenCount = 1;
+    _currentFileSize = sizeof(FileHeader);
+    return Status::SUCCESS;
+}
+
 RingFileLogger::Status RingFileLogger::begin(fs::FS& filesystem, const Config &cfg) {
     // --- Сохраняем настройки ---
     if (cfg.maxFileSize <= 9 ||!cfg.maxFilesNum) return Status::INCORRECT_CONFIG;
@@ -78,17 +87,12 @@ RingFileLogger::Status RingFileLogger::begin(fs::FS& filesystem, const Config &c
 
     // --- Директория не существует ИЛИ все файлы невалидны ---
     if (!_filesystem->exists(makeDirPath())) _filesystem->mkdir(makeDirPath());
-    if(!(_file = _filesystem->open(makeFilePath(0), FILE_APPEND))) return Status::FILE_OPEN_ERROR;
-    if (!writeHeader(_file, 1)) return Status::FILE_WRITE_ERROR;
-    _currentFileNum = 0;
-    _currentGenCount = 1;
-    _currentFileSize = sizeof(FileHeader);
-    return Status::SUCCESS;
+    return createFirstFile();
 
 }
 
 size_t RingFileLogger::write(const uint8_t* buffer, size_t size) {
-    if (!_file) return 0;
+    if (!_file || _filesystem == nullptr) return 0;
 
     if (size > (_config.maxFileSize - sizeof(FileHeader)))  return 0;           // данные физически не влезают даже в пустой файл
     if (_currentFileSize + size > _config.maxFileSize)  {
@@ -136,6 +140,8 @@ RingFileLogger::Status RingFileLogger::rotate() {
 }
 
 RingFileLogger::Status RingFileLogger::dumpTo(Print& out) {
+    if (_filesystem == nullptr) return Status::NOT_INITIALIZED;
+
     flush();
     _file.close();
     uint8_t output_buf[257];
@@ -162,3 +168,32 @@ RingFileLogger::Status RingFileLogger::dumpTo(Print& out) {
     }   
 }
 
+size_t RingFileLogger::totalBytesUsed() const {
+    if (_filesystem == nullptr) return  0;
+
+    _file.flush();
+    fs::File t_file;
+
+    size_t totalBytes = 0;
+
+    for (uint16_t files_iter = 0; files_iter < _config.maxFilesNum; ++files_iter) {
+        t_file = _filesystem->open(makeFilePath(files_iter), FILE_READ);
+        if (!t_file)    continue;
+
+        totalBytes += t_file.size();
+        t_file.close();
+    }
+
+    return totalBytes;
+}
+
+RingFileLogger::Status RingFileLogger::clear() {
+    if (_filesystem == nullptr) return Status::NOT_INITIALIZED;
+    _file.close();
+
+    for (uint16_t files_iter = 0; files_iter < _config.maxFilesNum; files_iter++) {
+        _filesystem->remove(makeFilePath(files_iter));
+    }
+
+    return createFirstFile();
+}

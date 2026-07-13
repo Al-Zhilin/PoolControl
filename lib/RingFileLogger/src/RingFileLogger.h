@@ -61,7 +61,7 @@ class RingFileLogger : public Print {
         static_assert(sizeof(FileHeader) == 9, "FileHeader must be packed! Or check the size of the FileHeader struct!");
 
         fs::FS* _filesystem = nullptr;
-        fs::File _file;
+        mutable fs::File _file;
         
         Config _config;
         uint32_t _currentGenCount = 0;
@@ -69,6 +69,7 @@ class RingFileLogger : public Print {
         uint32_t _currentFileSize = 0;
 
         Status rotate();
+        Status createFirstFile();
         String makeFilePath(uint16_t) const;
         String makeDirPath() const;
         bool readHeader(fs::File&, FileHeader&);
