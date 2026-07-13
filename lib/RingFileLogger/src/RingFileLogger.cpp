@@ -39,6 +39,8 @@ bool RingFileLogger::writeHeader(fs::File& file, uint32_t generation) {
 
 RingFileLogger::Status RingFileLogger::begin(fs::FS& filesystem, const Config &cfg) {
     // --- Сохраняем настройки ---
+    if (cfg.maxFileSize <= 9 ||!cfg.maxFilesNum) return Status::INCORRECT_CONFIG;
+
     _config = cfg;
     _filesystem = &filesystem;
 
@@ -89,7 +91,9 @@ size_t RingFileLogger::write(const uint8_t* buffer, size_t size) {
     if (!_file) return 0;
 
     if (size > (_config.maxFileSize - sizeof(FileHeader)))  return 0;           // данные физически не влезают даже в пустой файл
-    if (_currentFileSize + size > _config.maxFileSize)  rotate();
+    if (_currentFileSize + size > _config.maxFileSize)  {
+        if (rotate() != Status::SUCCESS) return 0;
+    }
 
     size_t wrote = _file.write(buffer, size);
     _currentFileSize += wrote;
@@ -104,5 +108,62 @@ size_t RingFileLogger::write(uint8_t c) {
 void RingFileLogger::flush() {
     if (!_file) return;
     _file.flush();
+}
+
+RingFileLogger::Status RingFileLogger::rotate() {
+    _currentGenCount++;
+
+    // --- Вычисляем следующий файл для записи ---
+    _currentFileNum = (_currentFileNum + 1) % _config.maxFilesNum;
+
+    // --- Заканчиваем работу с текущим и переходим к следующему файлу ---
+    // --- С обработкой ошибок: при возникновении пытаемся пересоздать, если проблема не решилась - возврат ошибки ---
+    bool attemp = false;
+    bool write_success = false;
+
+    do {
+        if (_file)  _file.close();
+        if (attemp) {
+            _filesystem->remove(makeFilePath((_currentFileNum)));
+        }
+        _file = _filesystem->open(makeFilePath(_currentFileNum), FILE_WRITE);
+
+        // не более одной попытки пересоздания
+        if (attemp) {
+            return Status::FILE_OPEN_ERROR;
+        }
+        attemp = true;
+    }
+    while (!(_file && !writeHeader(_file, _currentGenCount)));              // writeHeader вызывается только при валидном файле, а скобка в целом отображает суммарный успех или неуспех хотя бы одной части
+    _currentFileSize = sizeof(FileHeader);
+
+    return Status::SUCCESS;
+}
+
+RingFileLogger::Status RingFileLogger::dumpTo(Print& out) {
+    flush();
+    _file.close();
+    uint8_t output_buf[257];
+
+    uint16_t slot_iter = (_currentFileNum+1) % _config.maxFilesNum;
+    for (;;slot_iter = (slot_iter + 1) % _config.maxFilesNum) {             // Обход со следующего файла по очереди (мин. поколение) до текущего (дамп всего)
+        _file = _filesystem->open(makeFilePath(slot_iter), FILE_READ);
+        if (!_file) return Status::FILE_OPEN_ERROR;
+
+        _file.seek(sizeof(FileHeader));                                            // Header не читаем
+    
+        size_t read = 0;
+        while (read = _file.read(output_buf, 256)) {                               // читаем пока read() не вернет 0 прочитанных байт
+            if (out.write(output_buf, read) != read) {
+                _file = _filesystem->open(makeFilePath(_currentFileNum), FILE_APPEND);
+                return Status::DUMP_OUT_ERROR;
+            }
+        }
+
+        if (slot_iter == _currentFileNum) {                                        // успешно прочитали все файлы
+            _file = _filesystem->open(makeFilePath(_currentFileNum), FILE_APPEND);
+            return Status::SUCCESS;
+        }
+    }   
 }
 

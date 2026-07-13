@@ -3,6 +3,14 @@
 #include "Print.h"
 #include <FS.h>
 
+/*
+TODO:
+- Полная проверка валидности переданного конфига в begin()
+
+
+
+*/
+
 class RingFileLogger : public Print {
     public:
         struct Config {
@@ -10,7 +18,7 @@ class RingFileLogger : public Print {
             uint16_t maxFilesNum = 2;               // максимальное кол-во файлов. default = 2 штуки
             const char* dirName = "logs";           // имя директории(папки) с логами
             const char* filePrefix = "log";         // префикс имени файлов
-            const char* fileExtension = ".txt";     // расширение файловИ
+            const char* fileExtension = ".txt";     // расширение файлов
         };
 
         enum class Status {
@@ -20,6 +28,8 @@ class RingFileLogger : public Print {
             FILE_OPEN_ERROR,                        // не удалось открыть файл
             FILE_CREATE_ERROR,                      // не удалось создать файл
             FILE_WRITE_ERROR,                       // ошибка записи данных в файл
+            INCORRECT_CONFIG,                       // в переданном полььзовательском конфиге содержатся инвалидные данные
+            DUMP_OUT_ERROR,                         // ошибка вывода в переданный Print& в функции dumpTo()
         };
 
         Status begin(fs::FS& filesys, const Config& cfg = Config{});
@@ -54,7 +64,7 @@ class RingFileLogger : public Print {
         uint16_t _currentFileNum = 0;
         uint32_t _currentFileSize = 0;
 
-        void rotate();
+        Status rotate();
         String makeFilePath(uint16_t) const;
         String makeDirPath() const;
         bool readHeader(fs::File&, FileHeader&);
