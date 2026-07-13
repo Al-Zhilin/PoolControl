@@ -47,6 +47,8 @@ RingFileLogger::Status RingFileLogger::createFirstFile() {
 }
 
 RingFileLogger::Status RingFileLogger::begin(fs::FS& filesystem, const Config &cfg) {
+    _ready = false;
+
     // --- Сохраняем настройки ---
     if (cfg.maxFileSize <= 9 ||!cfg.maxFilesNum) return Status::INCORRECT_CONFIG;
 
@@ -81,18 +83,20 @@ RingFileLogger::Status RingFileLogger::begin(fs::FS& filesystem, const Config &c
             if (!(_file = _filesystem->open(makeFilePath(_currentFileNum), FILE_APPEND)))    return Status::FILE_OPEN_ERROR;
             _currentFileSize = _file.size();
             _currentGenCount = max_generation;
+            _ready = true;
             return Status::SUCCESS;
         }
     }
 
     // --- Директория не существует ИЛИ все файлы невалидны ---
     if (!_filesystem->exists(makeDirPath())) _filesystem->mkdir(makeDirPath());
-    return createFirstFile();
-
+    Status create_stat = createFirstFile();
+    if (create_stat == Status::SUCCESS) _ready = true;
+    return create_stat;
 }
 
 size_t RingFileLogger::write(const uint8_t* buffer, size_t size) {
-    if (!_file || _filesystem == nullptr) return 0;
+    if (!_file || !_ready) return 0;
 
     if (size > (_config.maxFileSize - sizeof(FileHeader)))  return 0;           // данные физически не влезают даже в пустой файл
     if (_currentFileSize + size > _config.maxFileSize)  {
@@ -140,36 +144,34 @@ RingFileLogger::Status RingFileLogger::rotate() {
 }
 
 RingFileLogger::Status RingFileLogger::dumpTo(Print& out) {
-    if (_filesystem == nullptr) return Status::NOT_INITIALIZED;
+    if (!_ready) return Status::NOT_INITIALIZED;
 
     flush();
-    _file.close();
+    fs::File t_file;
     uint8_t output_buf[257];
 
     uint16_t slot_iter = (_currentFileNum+1) % _config.maxFilesNum;
     for (;;slot_iter = (slot_iter + 1) % _config.maxFilesNum) {             // Обход со следующего файла по очереди (мин. поколение) до текущего (дамп всего)
-        _file = _filesystem->open(makeFilePath(slot_iter), FILE_READ);
-        if (_file) {
-            _file.seek(sizeof(FileHeader));                                            // Header не читаем
+        t_file = _filesystem->open(makeFilePath(slot_iter), FILE_READ);
+        if (t_file) {
+            t_file.seek(sizeof(FileHeader));                                            // Header не читаем
         
             size_t read = 0;
-            while (read = _file.read(output_buf, 256)) {                               // читаем пока read() не вернет 0 прочитанных байт
+            while (read = t_file.read(output_buf, 256)) {                               // читаем пока read() не вернет 0 прочитанных байт
                 if (out.write(output_buf, read) != read) {
-                    _file = _filesystem->open(makeFilePath(_currentFileNum), FILE_APPEND);
                     return Status::DUMP_OUT_ERROR;
                 }
             }
         }
 
         if (slot_iter == _currentFileNum) {                                        // успешно прочитали все файлы
-            _file = _filesystem->open(makeFilePath(_currentFileNum), FILE_APPEND);
             return Status::SUCCESS;
         }
     }   
 }
 
 size_t RingFileLogger::totalBytesUsed() const {
-    if (_filesystem == nullptr) return  0;
+    if (!_ready) return  0;
 
     _file.flush();
     fs::File t_file;
@@ -188,7 +190,7 @@ size_t RingFileLogger::totalBytesUsed() const {
 }
 
 RingFileLogger::Status RingFileLogger::clear() {
-    if (_filesystem == nullptr) return Status::NOT_INITIALIZED;
+    if (!_ready) return Status::NOT_INITIALIZED;
     _file.close();
 
     for (uint16_t files_iter = 0; files_iter < _config.maxFilesNum; files_iter++) {

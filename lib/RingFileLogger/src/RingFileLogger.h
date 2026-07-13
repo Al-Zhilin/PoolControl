@@ -67,6 +67,7 @@ class RingFileLogger : public Print {
         uint32_t _currentGenCount = 0;
         uint16_t _currentFileNum = 0;
         uint32_t _currentFileSize = 0;
+        bool _ready = false;
 
         Status rotate();
         Status createFirstFile();
