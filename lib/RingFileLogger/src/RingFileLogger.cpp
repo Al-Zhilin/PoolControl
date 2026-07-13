@@ -54,6 +54,11 @@ RingFileLogger::Status RingFileLogger::begin(fs::FS& filesystem, const Config &c
 
     _config = cfg;
     _filesystem = &filesystem;
+    if (_mutex == nullptr) {
+        _mutex = xSemaphoreCreateMutex();
+        if (_mutex == nullptr) return Status::MUTEX_CREATE_ERROR;
+    }
+
 
     // --- Проверка существования директории ---
     if (_filesystem->exists(makeDirPath())) {                 // Существует, проверим файлы

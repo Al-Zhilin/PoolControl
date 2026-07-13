@@ -1,6 +1,8 @@
 #pragma once
 
 #include "Print.h"
+#include <freertos/FreeRTOS.h>
+#include <freertos/semphr.h>
 #include <FS.h>
 
 /*
@@ -30,6 +32,7 @@ class RingFileLogger : public Print {
             FILE_WRITE_ERROR,                       // ошибка записи данных в файл
             INCORRECT_CONFIG,                       // в переданном полььзовательском конфиге содержатся инвалидные данные
             DUMP_OUT_ERROR,                         // ошибка вывода в переданный Print& в функции dumpTo()
+            MUTEX_CREATE_ERROR,                     // ошибка создания мьютекса
         };
 
         Status begin(fs::FS& filesys, const Config& cfg = Config{});
@@ -62,6 +65,8 @@ class RingFileLogger : public Print {
 
         fs::FS* _filesystem = nullptr;
         mutable fs::File _file;
+
+        SemaphoreHandle_t _mutex;
         
         Config _config;
         uint32_t _currentGenCount = 0;
