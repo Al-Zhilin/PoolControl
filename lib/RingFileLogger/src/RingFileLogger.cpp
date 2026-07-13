@@ -118,26 +118,21 @@ RingFileLogger::Status RingFileLogger::rotate() {
 
     // --- Заканчиваем работу с текущим и переходим к следующему файлу ---
     // --- С обработкой ошибок: при возникновении пытаемся пересоздать, если проблема не решилась - возврат ошибки ---
-    bool attemp = false;
-    bool write_success = false;
-
-    do {
+    
+    for (uint8_t attemp = 0; attemp < 2; ++attemp) {            // максимум одна попытка пересоздания
         if (_file)  _file.close();
-        if (attemp) {
-            _filesystem->remove(makeFilePath((_currentFileNum)));
-        }
+        if (attemp) _filesystem->remove(makeFilePath(_currentFileNum));
+
         _file = _filesystem->open(makeFilePath(_currentFileNum), FILE_WRITE);
+        bool success = _file && writeHeader(_file, _currentGenCount);
 
-        // не более одной попытки пересоздания
-        if (attemp) {
-            return Status::FILE_OPEN_ERROR;
+        if (success) {
+            _currentFileSize = sizeof(FileHeader);
+            return Status::SUCCESS;
         }
-        attemp = true;
     }
-    while (!(_file && !writeHeader(_file, _currentGenCount)));              // writeHeader вызывается только при валидном файле, а скобка в целом отображает суммарный успех или неуспех хотя бы одной части
-    _currentFileSize = sizeof(FileHeader);
-
-    return Status::SUCCESS;
+    
+    return Status::FILE_OPEN_ERROR;
 }
 
 RingFileLogger::Status RingFileLogger::dumpTo(Print& out) {
@@ -148,15 +143,15 @@ RingFileLogger::Status RingFileLogger::dumpTo(Print& out) {
     uint16_t slot_iter = (_currentFileNum+1) % _config.maxFilesNum;
     for (;;slot_iter = (slot_iter + 1) % _config.maxFilesNum) {             // Обход со следующего файла по очереди (мин. поколение) до текущего (дамп всего)
         _file = _filesystem->open(makeFilePath(slot_iter), FILE_READ);
-        if (!_file) return Status::FILE_OPEN_ERROR;
-
-        _file.seek(sizeof(FileHeader));                                            // Header не читаем
-    
-        size_t read = 0;
-        while (read = _file.read(output_buf, 256)) {                               // читаем пока read() не вернет 0 прочитанных байт
-            if (out.write(output_buf, read) != read) {
-                _file = _filesystem->open(makeFilePath(_currentFileNum), FILE_APPEND);
-                return Status::DUMP_OUT_ERROR;
+        if (_file) {
+            _file.seek(sizeof(FileHeader));                                            // Header не читаем
+        
+            size_t read = 0;
+            while (read = _file.read(output_buf, 256)) {                               // читаем пока read() не вернет 0 прочитанных байт
+                if (out.write(output_buf, read) != read) {
+                    _file = _filesystem->open(makeFilePath(_currentFileNum), FILE_APPEND);
+                    return Status::DUMP_OUT_ERROR;
+                }
             }
         }
 

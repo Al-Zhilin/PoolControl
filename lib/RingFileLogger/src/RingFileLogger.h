@@ -41,8 +41,12 @@ class RingFileLogger : public Print {
 
         // Геттеры
         size_t totalBytesUsed() const;                   // суммарный размер лог-файлов в ФС
-        uint32_t currentGenCount() const;                // номер текущего "поколения"
-        uint16_t currentFileNum() const;                 // номер файла, с которым класс сейчас работает
+        uint32_t currentGenCount() const {               // номер текущего "поколения"
+            return _currentGenCount;
+        }   
+        uint16_t currentFileNum() const {                // номер файла, с которым класс сейчас работает
+            return _currentFileNum;
+        }
         
 
     private:
