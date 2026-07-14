@@ -33,6 +33,7 @@ class RingFileLogger : public Print {
             INCORRECT_CONFIG,                       // в переданном полььзовательском конфиге содержатся инвалидные данные
             DUMP_OUT_ERROR,                         // ошибка вывода в переданный Print& в функции dumpTo()
             MUTEX_CREATE_ERROR,                     // ошибка создания мьютекса
+            MUTEX_TIMEOUT_ERROR,                    // ошибка времени ожидания захвата мьютекса
         };
 
         Status begin(fs::FS& filesys, const Config& cfg = Config{});
@@ -45,9 +46,13 @@ class RingFileLogger : public Print {
         // Геттеры
         size_t totalBytesUsed() const;                   // суммарный размер лог-файлов в ФС
         uint32_t currentGenCount() const {               // номер текущего "поколения"
+            MutexRAII guard(_mutex);
+            if (!guard.acquired()) return 0;
             return _currentGenCount;
         }   
         uint16_t currentFileNum() const {                // номер файла, с которым класс сейчас работает
+            MutexRAII guard(_mutex);
+            if (!guard.acquired()) return 0;
             return _currentFileNum;
         }
         
@@ -66,7 +71,7 @@ class RingFileLogger : public Print {
         fs::FS* _filesystem = nullptr;
         mutable fs::File _file;
 
-        SemaphoreHandle_t _mutex;
+        SemaphoreHandle_t _mutex = nullptr;
         
         Config _config;
         uint32_t _currentGenCount = 0;
@@ -80,4 +85,32 @@ class RingFileLogger : public Print {
         String makeDirPath() const;
         bool readHeader(fs::File&, FileHeader&);
         bool writeHeader(fs::File&, uint32_t generation);
+
+        // маленькая обертка для реализации принципа RAII на мьютексе класса логирования
+        class MutexRAII {
+            public:
+                MutexRAII(SemaphoreHandle_t mutex) {
+                    handle = mutex;
+                    _acquired = false;
+                    _acquired = (handle != nullptr) && (xSemaphoreTake(handle, MUTEX_TIMEOUT) == pdTRUE);
+                }
+
+                ~MutexRAII() {
+                    if (_acquired) xSemaphoreGive(handle);
+                }
+
+                // Запрещаем копирование через конструктор и оператор
+                MutexRAII(const MutexRAII&) = delete;
+                MutexRAII& operator=(const MutexRAII&) = delete;
+
+                // Метод проверки успешности захвата мьютекса
+                bool acquired() const {
+                    return _acquired;
+                }
+
+            private:
+                static constexpr TickType_t MUTEX_TIMEOUT = pdMS_TO_TICKS(1000);            // таймаут ожидания мьютекса
+                bool _acquired = false;
+                SemaphoreHandle_t handle;
+        };
 };

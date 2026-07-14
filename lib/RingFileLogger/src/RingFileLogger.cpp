@@ -47,6 +47,15 @@ RingFileLogger::Status RingFileLogger::createFirstFile() {
 }
 
 RingFileLogger::Status RingFileLogger::begin(fs::FS& filesystem, const Config &cfg) {
+    // --- Подготовка к инициализации ---
+    if (_mutex == nullptr) {
+        _mutex = xSemaphoreCreateMutex();
+        if (_mutex == nullptr) return Status::MUTEX_CREATE_ERROR;
+    }
+
+    MutexRAII guard(_mutex);
+    if (!guard.acquired()) return Status::MUTEX_TIMEOUT_ERROR;
+
     _ready = false;
 
     // --- Сохраняем настройки ---
@@ -54,11 +63,6 @@ RingFileLogger::Status RingFileLogger::begin(fs::FS& filesystem, const Config &c
 
     _config = cfg;
     _filesystem = &filesystem;
-    if (_mutex == nullptr) {
-        _mutex = xSemaphoreCreateMutex();
-        if (_mutex == nullptr) return Status::MUTEX_CREATE_ERROR;
-    }
-
 
     // --- Проверка существования директории ---
     if (_filesystem->exists(makeDirPath())) {                 // Существует, проверим файлы
@@ -101,6 +105,9 @@ RingFileLogger::Status RingFileLogger::begin(fs::FS& filesystem, const Config &c
 }
 
 size_t RingFileLogger::write(const uint8_t* buffer, size_t size) {
+    MutexRAII guard(_mutex);
+    if (!guard.acquired()) return 0;
+
     if (!_file || !_ready) return 0;
 
     if (size > (_config.maxFileSize - sizeof(FileHeader)))  return 0;           // данные физически не влезают даже в пустой файл
@@ -119,11 +126,17 @@ size_t RingFileLogger::write(uint8_t c) {
 }
 
 void RingFileLogger::flush() {
+    MutexRAII guard(_mutex);
+    if (!guard.acquired()) return;
+
     if (!_file) return;
     _file.flush();
 }
 
 RingFileLogger::Status RingFileLogger::rotate() {
+    MutexRAII guard(_mutex);
+    if (!guard.acquired()) return Status::MUTEX_TIMEOUT_ERROR;
+
     _currentGenCount++;
 
     // --- Вычисляем следующий файл для записи ---
@@ -149,9 +162,12 @@ RingFileLogger::Status RingFileLogger::rotate() {
 }
 
 RingFileLogger::Status RingFileLogger::dumpTo(Print& out) {
+    MutexRAII guard(_mutex);
+    if (!guard.acquired()) return Status::MUTEX_TIMEOUT_ERROR;
+
     if (!_ready) return Status::NOT_INITIALIZED;
 
-    flush();
+    _file.flush();
     fs::File t_file;
     uint8_t output_buf[257];
 
@@ -176,6 +192,9 @@ RingFileLogger::Status RingFileLogger::dumpTo(Print& out) {
 }
 
 size_t RingFileLogger::totalBytesUsed() const {
+    MutexRAII guard(_mutex);
+    if (!guard.acquired()) return 0;
+
     if (!_ready) return  0;
 
     _file.flush();
@@ -195,7 +214,11 @@ size_t RingFileLogger::totalBytesUsed() const {
 }
 
 RingFileLogger::Status RingFileLogger::clear() {
+    MutexRAII guard(_mutex);
+    if (!guard.acquired()) return Status::MUTEX_TIMEOUT_ERROR;
+
     if (!_ready) return Status::NOT_INITIALIZED;
+    
     _file.close();
 
     for (uint16_t files_iter = 0; files_iter < _config.maxFilesNum; files_iter++) {
