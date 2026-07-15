@@ -1,0 +1,20 @@
+{
+    "name": "RingFileLogger",
+    "version": "0.1.0",
+    "description": "Organizes circular log storage in the form of files. Allows you to create a circular file-based log storage on any data storage medium.",
+    "keywords": ["logging", "logger", "ring-buffer", "filesystem", "esp32"],
+    "repository": {
+        "type": "git",
+        "url": "https://github.com/Al-Zhilin/RingFileLogger.git"
+    },
+    "authors": [
+        {
+            "name": "Al-Zhilin",
+            "email": "alekseyzh6@gmail.com",
+            "maintainer": true
+        }
+    ],
+    "license": "MIT",
+    "frameworks": "arduino",
+    "platforms": "espressif32"
+}

@@ -46,6 +46,10 @@ RingFileLogger::Status RingFileLogger::createFirstFile() {
     return Status::SUCCESS;
 }
 
+RingFileLogger::Status RingFileLogger::begin(fs::FS& filesys) {
+    return begin(filesys, Config{});
+}
+
 RingFileLogger::Status RingFileLogger::begin(fs::FS& filesystem, const Config &cfg) {
     // --- Подготовка к инициализации ---
     if (_mutex == nullptr) {
@@ -134,9 +138,6 @@ void RingFileLogger::flush() {
 }
 
 RingFileLogger::Status RingFileLogger::rotate() {
-    MutexRAII guard(_mutex);
-    if (!guard.acquired()) return Status::MUTEX_TIMEOUT_ERROR;
-
     _currentGenCount++;
 
     // --- Вычисляем следующий файл для записи ---

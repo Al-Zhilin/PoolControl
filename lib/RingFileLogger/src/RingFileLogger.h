@@ -36,7 +36,8 @@ class RingFileLogger : public Print {
             MUTEX_TIMEOUT_ERROR,                    // ошибка времени ожидания захвата мьютекса
         };
 
-        Status begin(fs::FS& filesys, const Config& cfg = Config{});
+        Status begin(fs::FS& filesys, const Config& cfg);
+        Status begin(fs::FS& filesys);
         size_t write(uint8_t) override;
         size_t write(const uint8_t*, size_t) override;
         void flush() override;
