@@ -12,22 +12,22 @@
             "type": "platformio-debug",
             "request": "launch",
             "name": "PIO Debug",
-            "executable": "C:/Users/user/Documents/PlatformIO/Projects/Ypravlenie/.pio/build/esp32ota/firmware.elf",
-            "projectEnvName": "esp32ota",
+            "executable": "C:/Users/user/Documents/PlatformIO/Projects/Ypravlenie/.pio/build/esp32dev/firmware.elf",
+            "projectEnvName": "esp32dev",
             "toolchainBinDir": "C:/Users/user/.platformio/packages/toolchain-xtensa-esp-elf/bin",
             "internalConsoleOptions": "openOnSessionStart",
             "svdPath": "C:/Users/user/.platformio/platforms/espressif32/misc/svd/esp32.svd",
             "preLaunchTask": {
                 "type": "PlatformIO",
-                "task": "Pre-Debug (esp32ota)"
+                "task": "Pre-Debug (esp32dev)"
             }
         },
         {
             "type": "platformio-debug",
             "request": "launch",
             "name": "PIO Debug (skip Pre-Debug)",
-            "executable": "C:/Users/user/Documents/PlatformIO/Projects/Ypravlenie/.pio/build/esp32ota/firmware.elf",
-            "projectEnvName": "esp32ota",
+            "executable": "C:/Users/user/Documents/PlatformIO/Projects/Ypravlenie/.pio/build/esp32dev/firmware.elf",
+            "projectEnvName": "esp32dev",
             "toolchainBinDir": "C:/Users/user/.platformio/packages/toolchain-xtensa-esp-elf/bin",
             "internalConsoleOptions": "openOnSessionStart",
             "svdPath": "C:/Users/user/.platformio/platforms/espressif32/misc/svd/esp32.svd"
@@ -36,8 +36,8 @@
             "type": "platformio-debug",
             "request": "launch",
             "name": "PIO Debug (without uploading)",
-            "executable": "C:/Users/user/Documents/PlatformIO/Projects/Ypravlenie/.pio/build/esp32ota/firmware.elf",
-            "projectEnvName": "esp32ota",
+            "executable": "C:/Users/user/Documents/PlatformIO/Projects/Ypravlenie/.pio/build/esp32dev/firmware.elf",
+            "projectEnvName": "esp32dev",
             "toolchainBinDir": "C:/Users/user/.platformio/packages/toolchain-xtensa-esp-elf/bin",
             "internalConsoleOptions": "openOnSessionStart",
             "svdPath": "C:/Users/user/.platformio/platforms/espressif32/misc/svd/esp32.svd",
