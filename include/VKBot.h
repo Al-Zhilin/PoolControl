@@ -45,7 +45,7 @@ VKApiResult vkApiCall(const String& method, String payload, bool isPost) {
     returned_body = http.getString();
     DeserializationError err = deserializeJson(result.doc, returned_body);
 
-    if (!err || result.httpCode <= 0) {
+    if (err || result.httpCode <= 0) {
         result.ok = false;
     }
 
@@ -77,49 +77,35 @@ String urlEncode(String str) {
 }
 
 // Отправка простого текстового сообщения
-String VKSendMessage(String data) {
+VKApiResult VKSendMessage(String data) {
     
+    // --- Собираем тело запроса ---
     String payload = "peer_id=";
     payload += VK_PEER_ID;
     payload += "&message=";
     payload += urlEncode(data);
-
     payload += "&random_id=";
     payload += String(esp_random() & 0x7FFFFFFF);
-    
-    VKApiResult result = vkApiCall("messages.send", payload, true);
 
-    return "s";
+    // --- Обращение к API и возврат результата ---
+    return vkApiCall("messages.send", payload, true);
 }
 
 // инициализация Long Poll соединения
 bool VKLongPollInit() {
-    WiFiClientSecure client;
-    client.setInsecure();
+    String payload = "group_id=";
+    payload += VK_GROUP_ID;
 
-    HTTPClient http;
-    http.begin(client, "https://api.vk.com/method/groups.getLongPollServer?group_id=" + String(VK_GROUP_ID) + "&access_token=" + VK_TOKEN + "&v=5.199");
+    VKApiResult result = vkApiCall("groups.getLongPollServer", payload, false);
 
-    int return_code = http.GET();
-    String returned_body = "";
-
-    if (return_code > 0)    {
-        returned_body = http.getString();
-        http.end();
-
-        JsonDocument doc;
-        DeserializationError err = deserializeJson(doc, returned_body);
-
-        if (!err) {
-            server = doc["response"]["server"].as<String>();
-            key = doc["response"]["key"].as<String>();
-            ts = doc["response"]["ts"].as<uint32_t>();
+    if (result.ok)    {
+            server = result.doc["response"]["server"].as<String>();
+            key = result.doc["response"]["key"].as<String>();
+            ts = result.doc["response"]["ts"].as<uint32_t>();
             if (server != "") return true;
-        }
 
         return false;
     }
-    http.end();
     return false;
 }
 
@@ -261,17 +247,8 @@ String buildKeyboard() {
 
 // функция для ответа snackbar-ом на нажатие кнопки
 void VKAnswerCallback(VKEvent &event, String snackbar_text) {
-    WiFiClientSecure client;
-    client.setInsecure();
 
-    HTTPClient http;
-    http.begin(client, "https://api.vk.com/method/messages.sendMessageEventAnswer");
-    http.addHeader("Content-Type", "application/x-www-form-urlencoded");
-
-    String eventData = "{\"type\":\"show_snackbar\",\"text\":\"" + snackbar_text + "\"}";
-
-
-    String payload = "event_id=";
+    String payload = "event_id=", eventData = "{\"type\":\"show_snackbar\",\"text\":\"" + snackbar_text + "\"}";
     payload += event.event_id;
     payload += "&user_id=";
     payload += event.user_id;
@@ -279,25 +256,16 @@ void VKAnswerCallback(VKEvent &event, String snackbar_text) {
     payload += event.peer_id;
     payload += "&event_data=";
     payload += urlEncode(eventData);
-    payload += "&access_token=";
-    payload += VK_TOKEN;
-    payload += "&v=5.199";
-    
-    http.POST(payload);
-    http.end();
+
+    VKApiResult result = vkApiCall("messages.sendMessageEventAnswer", payload, true);
+
+    // Возможно логика ретраев?
 }
 
 // функция редактирования сообщений
 void VKEditMessage(String text) {
     if (!dashboardMsgID) return;                // если переменная не содержат корректного ID - нет смысла пытаться редактировать
 
-    WiFiClientSecure client;
-    client.setInsecure();
-
-    HTTPClient http;
-    http.begin(client, "https://api.vk.com/method/messages.edit");
-    http.addHeader("Content-Type", "application/x-www-form-urlencoded");
-    
     String payload = "peer_id=";
     payload += VK_PEER_ID;
     payload += "&message_id=";
@@ -306,23 +274,13 @@ void VKEditMessage(String text) {
     payload += urlEncode(text);
     payload += "&keyboard=";
     payload += urlEncode(buildKeyboard());
-    payload += "&access_token=";
-    payload += VK_TOKEN;
-    payload += "&v=5.199";
 
-    int return_code = http.POST(payload);
-    String returned_body = "";
+    VKApiResult result = vkApiCall("messages.edit", payload, true);
 
-    if (return_code > 0)    returned_body += http.getString();
-    http.end();
-
-    if (return_code <= 0) {
-        dashboardMsgID = 0;                                    // сетевая ошибка - сообщение точно нужно пересоздавать
-    }
-    else if (returned_body.indexOf("\"error\"") != -1) {
-        JsonDocument doc;
-        deserializeJson(doc, returned_body);
-        int error_code = doc["error"]["error_code"] | 0;
+    if (result.httpCode <= 0)   dashboardMsgID = 0;            // сетевая ошибка - сообщение точно нужно пересоздавать
+    
+    else if (!result.doc["error"].isNull()) {
+        int error_code = result.doc["error"]["error_code"];
         if (error_code != 9)   dashboardMsgID = 0;             // 9 = flood control - не пересоздаём, просто подождём
     }
 }

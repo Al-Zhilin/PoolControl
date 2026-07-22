@@ -194,24 +194,11 @@ void setup() {
     ArduinoOTA.begin();
     Pinging();
 
-    // --- Отправляем стартовое сообщение ---
-    String resp_body = VKSendMessage("Стартовая загрузка...");
-    JsonDocument doc;
-    DeserializationError err = deserializeJson(doc, resp_body);
-    if (!err) {
-    dashboardMsgID = doc["response"].as<int32_t>();
-    VKEditMessage(buildDashboardText());
-    }
-    else {
-    ESP_LOGE("VK_API", "VK send failed, dashboard will retry on next UPD_PERIOD");
-    }
-
 }
 
 void loop() {
   static uint32_t pool_timer = millis(), ping_timer = millis(), reconnect_timer = millis();
-  static bool int_res = !internet;
-  //FB_Time t = bot.getTime(3);
+  static bool int_res = !internet, start_update = true;
 
   ArduinoOTA.handle();
   LOG_HANDLE();
@@ -282,20 +269,22 @@ void loop() {
 
   static uint32_t get_per = 0, upd_per = 0;
 
-  if (millis() - upd_per >= UPD_PERIOD) {
+  if (millis() - upd_per >= UPD_PERIOD || start_update) {
+    if (start_update)   start_update = false;
     upd_per = millis();
     if (!dashboardMsgID) {
-        String resp = VKSendMessage("Стартовая загрузка...");
-        JsonDocument doc;
-        if (!deserializeJson(doc, resp))    dashboardMsgID = doc["response"].as<int32_t>();
+        VKApiResult result = VKSendMessage("Стартовая загрузка...");
+        if (result.ok)    dashboardMsgID = result.doc["response"].as<int32_t>();
     }
     if (dashboardMsgID) VKEditMessage(buildDashboardText());
+    else ESP_LOGE("VK_API", "Ошибка получения dashboardMsg!");
   }
 
   if (millis() - get_per >= GET_PERIOD) {
     get_per = millis();
     http_get();
   }
+
   if (ds.ready()) {
    TempReading();      //0 - датчик темп. воздуха, 1 - холодной воды, 2 - теплой воды
   }
