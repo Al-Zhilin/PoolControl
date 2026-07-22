@@ -1,6 +1,6 @@
 void ConnectWiFi() {
   WiFi.mode(WIFI_STA);
-  WiFi.begin(ssid, password);
+  WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
 
   uint32_t start_time = millis();
 

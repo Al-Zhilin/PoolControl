@@ -6,6 +6,61 @@ int32_t dashboardMsgID = 0;
 
 String VKPoll();
 
+// Структура ответа функции, работающей с API
+struct VKApiResult {
+    bool ok;                        // true, если запрос успешен и API не вернул ошибку
+    int httpCode;                   // код от http
+    int vkErrorCode = 0;            // код ошибки от ВК, если был
+    String vkErrorMsg = "";         // сообщение ошибки от ВК, если был
+    JsonDocument doc;               // распарсенное тело ответа
+};
+
+// Функция - обертка над API запросами
+VKApiResult vkApiCall(const String& method, String payload, bool isPost) {
+    VKApiResult result;
+
+    WiFiClientSecure client;
+    client.setInsecure();
+
+    HTTPClient http;
+
+    // добавляем универсальную информацию к запросу
+    payload += "&access_token=";
+    payload += VK_TOKEN;
+    payload += "&v=5.199";
+
+    String returned_body;
+
+    if (isPost) {
+        http.begin(client, "https://api.vk.com/method/" + method);
+        http.addHeader("Content-Type", "application/x-www-form-urlencoded");
+        result.httpCode = http.POST(payload);
+    }
+
+    else {
+        http.begin(client, "https://api.vk.com/method/" + method + "?" + payload);
+        result.httpCode = http.GET();
+    }
+
+    returned_body = http.getString();
+    DeserializationError err = deserializeJson(result.doc, returned_body);
+
+    if (!err || result.httpCode <= 0) {
+        result.ok = false;
+    }
+
+    else if (!result.doc["error"].isNull())   {                   // если есть ошибки
+        result.vkErrorCode = result.doc["error"]["error_code"].as<int>();
+        result.vkErrorMsg = result.doc["error"]["error_msg"].as<String>();
+        result.ok = false;
+    }
+
+    else result.ok = true;
+
+    http.end();
+    return result;
+}
+
 // функция URLencode`ирования сообщения
 String urlEncode(String str) {
     String encoded = "";
@@ -23,30 +78,18 @@ String urlEncode(String str) {
 
 // Отправка простого текстового сообщения
 String VKSendMessage(String data) {
-    WiFiClientSecure client;                // для защищенного https
-    client.setInsecure();                   // отключаем проверку сертификата
-
-    HTTPClient http;
-    http.begin(client, "https://api.vk.com/method/messages.send");
-    http.addHeader("Content-Type", "application/x-www-form-urlencoded");
-
+    
     String payload = "peer_id=";
     payload += VK_PEER_ID;
     payload += "&message=";
     payload += urlEncode(data);
+
     payload += "&random_id=";
     payload += String(esp_random() & 0x7FFFFFFF);
-    payload += "&access_token=";
-    payload += VK_TOKEN;
-    payload += "&v=5.199";
+    
+    VKApiResult result = vkApiCall("messages.send", payload, true);
 
-    int return_code = http.POST(payload);
-    String returned_body = "";
-
-    if (return_code > 0)    returned_body = http.getString();
-
-    http.end();
-    return returned_body;
+    return "s";
 }
 
 // инициализация Long Poll соединения

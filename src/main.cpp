@@ -8,6 +8,7 @@
 #include <ESP32Ping.h>
 #include <TelnetSpy.h>
 #include <LittleFS.h>
+#include <RingFileLogger.h>
 #include <time.h>
 #include "Config.h"
 #include "pass.h"
@@ -121,15 +122,37 @@ void setup() {
 
     // -- Монтируем файловую систему ---
     if (!LittleFS.begin(true)) ESP_LOGE("LittleFS", "Ошибка начала работы файловой системы!");
+    else {
+        RingFileLogger::Config user_config = {          // выделяем суммарно 256кБ = 8 файлов по 32кБ
+            .maxFileSize = 32768,
+            .maxFilesNum = 8,
+            .dirName = "logs",
+            .filePrefix = "log",
+            .fileExtension = ".txt"
+        };
+        logger.begin(LittleFS, user_config);
+    }
 
     s_original_vprintf = esp_log_set_vprintf(my_log_vprintf);
     esp_log_level_set("*", ESP_LOG_WARN);        // всё по умолчанию тихо
     esp_log_level_set("NTP", ESP_LOG_DEBUG);
     esp_log_level_set("VK_API", ESP_LOG_DEBUG);
     esp_log_level_set("EVENT_QUEUE", ESP_LOG_DEBUG);
+    esp_log_level_set("TEMP_SENSORS", ESP_LOG_DEBUG);
 
     // --- WiFi и Serial для отладки ---
     ConnectWiFi();
+
+    // --- mDNS и регистрация HTTP обработчиков ---
+    if (!MDNS.begin(OTA_NAME))  ESP_LOGE("mDNS", "Не удалось запустить mDNS!");
+    MDNS.addService("http", "tcp", 80);
+
+    web_server.on("/", HTTP_GET, handleRoot);
+    web_server.on("/download", HTTP_GET, handleDownload);
+    web_server.on("/clear", HTTP_GET, handleClear);
+    web_server.begin();
+
+
     VKSendMessage("Причина перезагрузки: " + resetReasonToString(esp_reset_reason()));
     // --- Настраиваем задачу с LongPoll на ядро 0 и создаем очередь для ивентов ВК
     vkEventQueue = xQueueCreate(5, sizeof(VKEvent));              // 5 объектов структуры VKEvent
@@ -167,20 +190,6 @@ void setup() {
 
     ds.requestTemp();
 
-    /*.attach(newMsg);
-    bot.unpinAll();
-    bot.sendMessage("Здравствуйте!\nПосмотреть графики: " + String(OPEN_M_LINK));
-    bot.sendMessage("скоро здесь будет температура");
-    TempID = bot.lastBotMsg();
-    startUnix = bot.getUnix();
-    bot.pinMessage(bot.lastBotMsg());*/
-
-    /*if (EEPROM.read(INIT_ADDR) != INIT_KEY) {
-    EEPROM.put(INIT_ADDR, INIT_KEY);
-    INIT_EEPROM();
-    EEPROM.commit();
-    }*/
-
     //START_EEPROM();
     ArduinoOTA.begin();
     Pinging();
@@ -206,6 +215,7 @@ void loop() {
 
   ArduinoOTA.handle();
   LOG_HANDLE();
+  web_server.handleClient();
 
   VKEvent event;
   if (xQueueReceive(vkEventQueue, &event, 0)) {                 // Обрабатываем пришедшие события

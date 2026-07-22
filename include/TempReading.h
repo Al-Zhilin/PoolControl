@@ -28,13 +28,13 @@ void TempReading() {
           if (error_flag[i]) {
               switch (i) {
                   case 0:
-                      //bot.sendMessage("Ошибка чтения датчика температуры воздуха!");
+                      ESP_LOGE("TEMP_SENSORS", "Ошибка чтения датчика температуры воздуха!");
                       break;
                   case 1:
-                      //bot.sendMessage("Ошибка чтения датчика температуры входной (холодной) воды!");
+                      ESP_LOGE("TEMP_SENSORS", "Ошибка чтения датчика температуры входной (холодной) воды!");
                       break;
                   case 2:
-                      //bot.sendMessage("Ошибка чтения датчика температуры выходной (теплой) воды!");
+                      ESP_LOGE("TEMP_SENSORS", "Ошибка чтения датчика температуры выходной (теплой) воды!");
                       break;
               }
               error_flag[i] = false;
@@ -45,6 +45,7 @@ void TempReading() {
           new_znach[i] = ds.getTemp();
       }
   }
+
   ds.requestTemp();
   Filtration(new_znach);
 }
