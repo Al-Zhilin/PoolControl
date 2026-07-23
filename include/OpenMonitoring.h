@@ -1,5 +1,5 @@
-void http_get() {
-    static bool get_failed = false, fail_flag = true;
+void OpenMonitoringSend() {
+    static bool get_failed = false;
 
     if (WiFi.status() == WL_CONNECTED) {
 
@@ -19,17 +19,14 @@ void http_get() {
         int result = http.GET();
 
         if (result <= 0) {
-           if (get_failed)  {
-              if (fail_flag) {
-                //bot.sendMessage("Ошибка HTTP-запроса");
-                fail_flag = false;
-              }
-           }
+           if (!get_failed) ESP_LOGE("OPEN_MONITORING", "Ошибка отправки запроса, код ответа: %d", result);
            get_failed = true;
         }
         else {
-          fail_flag = true;
-          get_failed = false;
+            if (get_failed) {
+                ESP_LOGD("OPEN_MONITORING", "Запрос отправлен успешно после предыдущей неудачи");
+                get_failed = false;
+            }
         }
 
         http.end();

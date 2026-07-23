@@ -18,46 +18,54 @@ struct VKApiResult {
 // Функция - обертка над API запросами
 VKApiResult vkApiCall(const String& method, String payload, bool isPost) {
     VKApiResult result;
-
     WiFiClientSecure client;
     client.setInsecure();
 
     HTTPClient http;
+    http.setTimeout(10000);
 
     // добавляем универсальную информацию к запросу
     payload += "&access_token=";
     payload += VK_TOKEN;
     payload += "&v=5.199";
 
-    String returned_body;
+    DeserializationError err;
 
-    if (isPost) {
-        http.begin(client, "https://api.vk.com/method/" + method);
-        http.addHeader("Content-Type", "application/x-www-form-urlencoded");
-        result.httpCode = http.POST(payload);
+    for (uint8_t request_try = 0; request_try < 3; request_try++) {
+        String returned_body;
+
+        if (isPost) {
+            http.begin(client, "https://api.vk.com/method/" + method);
+            http.addHeader("Content-Type", "application/x-www-form-urlencoded");
+            result.httpCode = http.POST(payload);
+        }
+
+        else {
+            http.begin(client, "https://api.vk.com/method/" + method + "?" + payload);
+            result.httpCode = http.GET();
+        }
+
+        returned_body = http.getString();
+        http.end();
+        err = deserializeJson(result.doc, returned_body);
+
+        if (err || result.httpCode <= 0) {                // при сетевой ошибке пытаемся отправить запрос еще 2 раза
+            result.ok = false;                            // ошибку десериализации тоже считаем обрывом связи
+            ESP_LOGE("VK_API", "Метод %s: сетевая ошибка, http_code=%d", method.c_str(), result.httpCode);
+            delay(200);
+        }
+        else break;
     }
 
-    else {
-        http.begin(client, "https://api.vk.com/method/" + method + "?" + payload);
-        result.httpCode = http.GET();
-    }
-
-    returned_body = http.getString();
-    DeserializationError err = deserializeJson(result.doc, returned_body);
-
-    if (err || result.httpCode <= 0) {
-        result.ok = false;
-    }
-
-    else if (!result.doc["error"].isNull())   {                   // если есть ошибки
+    if (!err && !result.doc["error"].isNull())   {        // если есть ошибки
         result.vkErrorCode = result.doc["error"]["error_code"].as<int>();
         result.vkErrorMsg = result.doc["error"]["error_msg"].as<String>();
         result.ok = false;
+        ESP_LOGE("VK_API", "Метод %s: VK вернул ошибку %d (%s)", method.c_str(), result.vkErrorCode, result.vkErrorMsg.c_str());
     }
 
-    else result.ok = true;
+    else if (result.httpCode > 0) result.ok = true;
 
-    http.end();
     return result;
 }
 

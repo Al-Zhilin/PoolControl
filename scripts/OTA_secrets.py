@@ -15,4 +15,10 @@ def before_upload(source, target, env):
     env.Replace(UPLOAD_PORT=f"{ota_name}.local")
     env.Append(UPLOADERFLAGS=[f"--auth={ota_pass}"])
 
+    # Если в pass.h сменились данные дял OTA, то прошивать нужно с вручную введенными старыми данными
+    # т.к. ESP до прошивки новых данных все еще отзывается на старые:
+
+    # env.Replace(UPLOAD_PORT="*****.local")
+    # env.Append(UPLOADERFLAGS=["--auth=********"])
+
 env.AddPreAction("upload", before_upload)

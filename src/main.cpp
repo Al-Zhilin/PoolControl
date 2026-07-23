@@ -91,7 +91,7 @@ static vprintf_like_t s_original_vprintf = NULL;
 #include "include/MenuBuild.h"
 #include "include/FilesManager.h"
 #include "include/TempReading.h"
-#include "include/HTTPGET.h"
+#include "include/OpenMonitoring.h"
 #include "include/PingCheck.h"
 #include "include/VKBot.h"
 
@@ -138,7 +138,8 @@ void setup() {
     esp_log_level_set("NTP", ESP_LOG_DEBUG);
     esp_log_level_set("VK_API", ESP_LOG_DEBUG);
     esp_log_level_set("EVENT_QUEUE", ESP_LOG_DEBUG);
-    esp_log_level_set("TEMP_SENSORS", ESP_LOG_DEBUG);
+    esp_log_level_set("OPEN_MONITORING", ESP_LOG_DEBUG);
+    esp_log_level_set("PING_CHECK", ESP_LOG_DEBUG);
 
     // --- WiFi и Serial для отладки ---
     ConnectWiFi();
@@ -282,7 +283,7 @@ void loop() {
 
   if (millis() - get_per >= GET_PERIOD) {
     get_per = millis();
-    http_get();
+    OpenMonitoringSend();
   }
 
   if (ds.ready()) {
