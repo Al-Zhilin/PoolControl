@@ -87,6 +87,34 @@ String urlEncode(String str) {
     return encoded;
 }
 
+// URLencode`ирование сообщения без String
+size_t urlEncodeTo(const char* src, char* dst, size_t dstSize) {   // src - что преобразовываем, dst - куда записываем
+    if (!dstSize)    return 0;
+    size_t pos = 0;
+
+    for (size_t src_iter = 0; src[src_iter] != '\0'; src_iter++) {
+        char c = src[src_iter];
+
+        // Проверка "безопасности" символа и преобразовывание его при надобности
+        if (isalnum((unsigned char)c) || c == '-' || c == '_' || c == '.' || c == '~') {
+            if (dstSize - 1 - pos >= 1) {           // есть как минимум свободный байт для записи
+                dst[pos++] = c;
+            }
+            else break;
+
+        } else {
+            if (dstSize - 1 - pos >= 3) {           // есть как минимум 3 свободных байта для записи
+                snprintf(dst + pos, dstSize - pos, "%%%02X", (uint8_t)c);
+                pos += 3;
+            }
+            else break;
+        }
+    }
+
+    dst[pos] = '\0';
+    return pos;
+}
+
 // Отправка простого текстового сообщения
 VKApiResult VKSendMessage(String data) {
     
