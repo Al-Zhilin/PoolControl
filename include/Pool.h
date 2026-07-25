@@ -4,9 +4,9 @@ float ChechKoeff() {
   float razn = temp[2] - temp[1];
 
   if (razn > -2)  return 1.0;
-  else if (razn <= -2 && razn > -4)  return 1.5;
-  else if (razn <= -4 && razn > -7)  return 2.0;
-  else if (razn <= -7)  return 3.0;
+  if (razn <= -2 && razn > -4)  return 1.5;
+  if (razn <= -4 && razn > -7)  return 2.0;
+  if (razn <= -7)  return 3.0;
 
   return 1.0;
 }
@@ -47,10 +47,5 @@ void Pool() {
         SwitchRelayPin(0, Relays[0]);
       }
     }
-  }
-
-  else if (Relays[0]) {
-    Relays[0] = false;
-    SwitchRelayPin(0, Relays[0]);
   }
 }

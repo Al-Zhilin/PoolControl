@@ -52,6 +52,9 @@ VKApiResult vkApiCall(const String& method, String payload, bool isPost) {
         if (err || result.httpCode <= 0) {                // при сетевой ошибке пытаемся отправить запрос еще 2 раза
             result.ok = false;                            // ошибку десериализации тоже считаем обрывом связи
             ESP_LOGE("VK_API", "Метод %s: сетевая ошибка, http_code=%d", method.c_str(), result.httpCode);
+            ESP_LOGD("DIAG", "In vkApiCall: uptime=%lus, freeHeap=%u, maxAlloc=%u, minFreeHeap=%u, rssi=%d",
+         millis()/1000, ESP.getFreeHeap(), ESP.getMaxAllocHeap(), ESP.getMinFreeHeap(), WiFi.RSSI());
+
             delay(200);
         }
         else break;
@@ -257,7 +260,7 @@ String buildKeyboard() {
 void VKAnswerCallback(VKEvent &event, String snackbar_text) {
 
     String payload = "event_id=", eventData = "{\"type\":\"show_snackbar\",\"text\":\"" + snackbar_text + "\"}";
-    payload += event.event_id;
+    payload += urlEncode(event.event_id);
     payload += "&user_id=";
     payload += event.user_id;
     payload += "&peer_id=";

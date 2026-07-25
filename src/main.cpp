@@ -134,12 +134,13 @@ void setup() {
     }
 
     s_original_vprintf = esp_log_set_vprintf(my_log_vprintf);
-    esp_log_level_set("*", ESP_LOG_WARN);        // всё по умолчанию тихо
+    esp_log_level_set("*", ESP_LOG_WARN);        // по умолчанию (включая системные логи библиотек)
     esp_log_level_set("NTP", ESP_LOG_DEBUG);
     esp_log_level_set("VK_API", ESP_LOG_DEBUG);
     esp_log_level_set("EVENT_QUEUE", ESP_LOG_DEBUG);
     esp_log_level_set("OPEN_MONITORING", ESP_LOG_DEBUG);
     esp_log_level_set("PING_CHECK", ESP_LOG_DEBUG);
+    esp_log_level_set("DIAG", ESP_LOG_DEBUG);
 
     // --- WiFi и Serial для отладки ---
     ConnectWiFi();
@@ -201,6 +202,13 @@ void loop() {
   static uint32_t pool_timer = millis(), ping_timer = millis(), reconnect_timer = millis();
   static bool int_res = !internet, start_update = true;
 
+  static uint32_t log_timer = 0;
+  if (millis() - log_timer >= 20 * 1000) {
+    ESP_LOGD("DIAG", "uptime=%lus, freeHeap=%u, maxAlloc=%u, minFreeHeap=%u, rssi=%d",
+         millis()/1000, ESP.getFreeHeap(), ESP.getMaxAllocHeap(), ESP.getMinFreeHeap(), WiFi.RSSI());
+    log_timer = millis();
+  }
+
   ArduinoOTA.handle();
   LOG_HANDLE();
   web_server.handleClient();
@@ -221,9 +229,12 @@ void loop() {
 
             if (relay_number < 4) {
                 if (type == "switch_relay") {
-                    Relays[relay_number] = !Relays[relay_number];
-                    SwitchRelayPin(relay_number, Relays[relay_number]);
-                    VKAnswerCallback(event, "Реле" + String(relay_number+1) + (Relays[relay_number] ? " теперь включено!" : " теперь выключено!"));
+                    if (!auto_mode[relay_number]) {
+                        Relays[relay_number] = !Relays[relay_number];
+                        SwitchRelayPin(relay_number, Relays[relay_number]);
+                        VKAnswerCallback(event, "Реле" + String(relay_number+1) + (Relays[relay_number] ? " теперь включено!" : " теперь выключено!"));
+                    }
+                    else VKAnswerCallback(event, "Ручное управление Реле" + String(relay_number) + " заблокировано. Включен автоматический режим управления!");
                 }
                 else if (type == "switch_relay_mode") {
                     auto_mode[relay_number] = !auto_mode[relay_number];
