@@ -53,7 +53,7 @@ VKApiResult vkApiCall(const String& method, String payload, bool isPost) {
             result.ok = false;                            // ошибку десериализации тоже считаем обрывом связи
             ESP_LOGE("VK_API", "Метод %s: сетевая ошибка, http_code=%d", method.c_str(), result.httpCode);
             ESP_LOGD("DIAG", "In vkApiCall: uptime=%lus, freeHeap=%u, maxAlloc=%u, minFreeHeap=%u, rssi=%d",
-         millis()/1000, ESP.getFreeHeap(), ESP.getMaxAllocHeap(), ESP.getMinFreeHeap(), WiFi.RSSI());
+                        millis()/1000, ESP.getFreeHeap(), ESP.getMaxAllocHeap(), ESP.getMinFreeHeap(), WiFi.RSSI());
 
             delay(200);
         }
@@ -65,6 +65,71 @@ VKApiResult vkApiCall(const String& method, String payload, bool isPost) {
         result.vkErrorMsg = result.doc["error"]["error_msg"].as<String>();
         result.ok = false;
         ESP_LOGE("VK_API", "Метод %s: VK вернул ошибку %d (%s)", method.c_str(), result.vkErrorCode, result.vkErrorMsg.c_str());
+    }
+
+    else if (result.httpCode > 0) result.ok = true;
+
+    return result;
+}
+
+VKApiResult vkApiCall(const char* method, char* payload, size_t payloadCapacity, bool isPost) {
+    VKApiResult result;
+    WiFiClientSecure client;
+    client.setInsecure();
+
+    HTTPClient http;
+    http.setTimeout(12000);
+
+    size_t len = strlen(payload);           // сколько уже записано
+    len += snprintf(payload + len, payloadCapacity - len, "&access_token=%s&v=5.199", VK_TOKEN);
+
+    if (len >= payloadCapacity) {
+        len = payloadCapacity - 1;
+        ESP_LOGE("VK_API", "Выделенного размера под payload не хватило для полноценной сборки");
+    }
+
+    char url[400];
+    DeserializationError err;
+
+    for (uint8_t request_try = 0; request_try < 3; request_try++) {
+        String returned_body;
+        if (isPost) {
+            if (snprintf(url, sizeof(url), "https://api.vk.com/method/%s", method) >= sizeof(url)) {
+                ESP_LOGE("VK_API", "При сборке запроса размера встроенного под url буфера [%d] не хватило!", sizeof(url));
+            }
+            http.begin(client, url);
+            http.addHeader("Content-Type", "application/x-www-form-urlencoded");
+            result.httpCode = http.POST(payload);
+        }
+
+        else {
+            if (snprintf(url, sizeof(url), "https://api.vk.com/method/%s?%s", method, payload) >= sizeof(url)) {
+                ESP_LOGE("VK_API", "При сборке запроса размера встроенного под url буфера [%d] не хватило!", sizeof(url));
+            }
+            http.begin(client, url);
+            result.httpCode = http.GET();
+        }
+
+        returned_body = http.getString();
+        http.end();
+        err = deserializeJson(result.doc, returned_body);
+
+        if (err || result.httpCode <= 0) {                // при сетевой ошибке пытаемся отправить запрос еще 2 раза
+            result.ok = false;                            // ошибку десериализации тоже считаем обрывом связи
+            ESP_LOGE("VK_API", "Метод %s: сетевая ошибка, http_code=%d", method, result.httpCode);
+            ESP_LOGD("DIAG", "In vkApiCall: uptime=%lus, freeHeap=%u, maxAlloc=%u, minFreeHeap=%u, rssi=%d",
+                        millis()/1000, ESP.getFreeHeap(), ESP.getMaxAllocHeap(), ESP.getMinFreeHeap(), WiFi.RSSI());
+
+            delay(200);
+        }
+        else break;
+    }
+
+    if (!err && !result.doc["error"].isNull())   {        // если есть ошибки
+        result.vkErrorCode = result.doc["error"]["error_code"].as<int>();
+        result.vkErrorMsg = result.doc["error"]["error_msg"].as<String>();
+        result.ok = false;
+        ESP_LOGE("VK_API", "Метод %s: VK вернул ошибку %d (%s)", method, result.vkErrorCode, result.vkErrorMsg.c_str());
     }
 
     else if (result.httpCode > 0) result.ok = true;
@@ -100,14 +165,20 @@ size_t urlEncodeTo(const char* src, char* dst, size_t dstSize) {   // src - чт
             if (dstSize - 1 - pos >= 1) {           // есть как минимум свободный байт для записи
                 dst[pos++] = c;
             }
-            else break;
+            else {
+                ESP_LOGE("VK_API", "Выделенного под URLEncode места не хватило!");
+                break;
+            }
 
         } else {
             if (dstSize - 1 - pos >= 3) {           // есть как минимум 3 свободных байта для записи
                 snprintf(dst + pos, dstSize - pos, "%%%02X", (uint8_t)c);
                 pos += 3;
             }
-            else break;
+            else {
+                ESP_LOGE("VK_API", "Выделенного под URLEncode места не хватило!");
+                break;
+            }
         }
     }
 
