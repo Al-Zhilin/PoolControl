@@ -1,6 +1,13 @@
 #include <ArduinoJson.h>
+#include <cstdarg>
 
-String server = "", key = "";
+// Чтобы обязятельные параметры обязательно влезли в размеры буферов, лучше при нехватке места урезать само сообщение, заранее вычитая
+// из свободного места размеры оставшихся параметров. Это позволит запросу отправится, даже при нехватке места для всего текста
+// "&random_id=" + до 10 цифр (21) + "&access_token=" + токен + "&v=5.199" (14 + strlen(VK_TOKEN) + 8) + '\0'
+const size_t VK_SUFFIX_RESERVE = 21 + 14 + strlen(VK_TOKEN) + 8 + 1;
+
+
+char server[128] = "", key[256] = "";
 uint32_t ts = 0;
 int32_t dashboardMsgID = 0;
 
@@ -15,63 +22,6 @@ struct VKApiResult {
     JsonDocument doc;               // распарсенное тело ответа
 };
 
-// Функция - обертка над API запросами
-VKApiResult vkApiCall(const String& method, String payload, bool isPost) {
-    VKApiResult result;
-    WiFiClientSecure client;
-    client.setInsecure();
-
-    HTTPClient http;
-    http.setTimeout(10000);
-
-    // добавляем универсальную информацию к запросу
-    payload += "&access_token=";
-    payload += VK_TOKEN;
-    payload += "&v=5.199";
-
-    DeserializationError err;
-
-    for (uint8_t request_try = 0; request_try < 3; request_try++) {
-        String returned_body;
-
-        if (isPost) {
-            http.begin(client, "https://api.vk.com/method/" + method);
-            http.addHeader("Content-Type", "application/x-www-form-urlencoded");
-            result.httpCode = http.POST(payload);
-        }
-
-        else {
-            http.begin(client, "https://api.vk.com/method/" + method + "?" + payload);
-            result.httpCode = http.GET();
-        }
-
-        returned_body = http.getString();
-        http.end();
-        err = deserializeJson(result.doc, returned_body);
-
-        if (err || result.httpCode <= 0) {                // при сетевой ошибке пытаемся отправить запрос еще 2 раза
-            result.ok = false;                            // ошибку десериализации тоже считаем обрывом связи
-            ESP_LOGE("VK_API", "Метод %s: сетевая ошибка, http_code=%d", method.c_str(), result.httpCode);
-            ESP_LOGD("DIAG", "In vkApiCall: uptime=%lus, freeHeap=%u, maxAlloc=%u, minFreeHeap=%u, rssi=%d",
-                        millis()/1000, ESP.getFreeHeap(), ESP.getMaxAllocHeap(), ESP.getMinFreeHeap(), WiFi.RSSI());
-
-            delay(200);
-        }
-        else break;
-    }
-
-    if (!err && !result.doc["error"].isNull())   {        // если есть ошибки
-        result.vkErrorCode = result.doc["error"]["error_code"].as<int>();
-        result.vkErrorMsg = result.doc["error"]["error_msg"].as<String>();
-        result.ok = false;
-        ESP_LOGE("VK_API", "Метод %s: VK вернул ошибку %d (%s)", method.c_str(), result.vkErrorCode, result.vkErrorMsg.c_str());
-    }
-
-    else if (result.httpCode > 0) result.ok = true;
-
-    return result;
-}
-
 VKApiResult vkApiCall(const char* method, char* payload, size_t payloadCapacity, bool isPost) {
     VKApiResult result;
     WiFiClientSecure client;
@@ -81,11 +31,11 @@ VKApiResult vkApiCall(const char* method, char* payload, size_t payloadCapacity,
     http.setTimeout(12000);
 
     size_t len = strlen(payload);           // сколько уже записано
-    len += snprintf(payload + len, payloadCapacity - len, "&access_token=%s&v=5.199", VK_TOKEN);
 
-    if (len >= payloadCapacity) {
-        len = payloadCapacity - 1;
-        ESP_LOGE("VK_API", "Выделенного размера под payload не хватило для полноценной сборки");
+    if (!appendChecked(payload, payloadCapacity, len, "&access_token=%s&v=5.199", VK_TOKEN)) {
+        ESP_LOGE("VK_API", "[VK_API_CALL] Выделенного размера под payload не хватило для полноценной сборки");
+        result.ok = false;
+        return result;
     }
 
     char url[400];
@@ -96,6 +46,8 @@ VKApiResult vkApiCall(const char* method, char* payload, size_t payloadCapacity,
         if (isPost) {
             if (snprintf(url, sizeof(url), "https://api.vk.com/method/%s", method) >= sizeof(url)) {
                 ESP_LOGE("VK_API", "При сборке запроса размера встроенного под url буфера [%d] не хватило!", sizeof(url));
+                result.ok = false;
+                return result;
             }
             http.begin(client, url);
             http.addHeader("Content-Type", "application/x-www-form-urlencoded");
@@ -105,6 +57,8 @@ VKApiResult vkApiCall(const char* method, char* payload, size_t payloadCapacity,
         else {
             if (snprintf(url, sizeof(url), "https://api.vk.com/method/%s?%s", method, payload) >= sizeof(url)) {
                 ESP_LOGE("VK_API", "При сборке запроса размера встроенного под url буфера [%d] не хватило!", sizeof(url));
+                result.ok = false;
+                return result;
             }
             http.begin(client, url);
             result.httpCode = http.GET();
@@ -117,9 +71,9 @@ VKApiResult vkApiCall(const char* method, char* payload, size_t payloadCapacity,
         if (err || result.httpCode <= 0) {                // при сетевой ошибке пытаемся отправить запрос еще 2 раза
             result.ok = false;                            // ошибку десериализации тоже считаем обрывом связи
             ESP_LOGE("VK_API", "Метод %s: сетевая ошибка, http_code=%d", method, result.httpCode);
-            ESP_LOGD("DIAG", "In vkApiCall: uptime=%lus, freeHeap=%u, maxAlloc=%u, minFreeHeap=%u, rssi=%d",
+            /*ESP_LOGD("DIAG", "In vkApiCall: uptime=%lus, freeHeap=%u, maxAlloc=%u, minFreeHeap=%u, rssi=%d",
                         millis()/1000, ESP.getFreeHeap(), ESP.getMaxAllocHeap(), ESP.getMinFreeHeap(), WiFi.RSSI());
-
+            */
             delay(200);
         }
         else break;
@@ -137,19 +91,22 @@ VKApiResult vkApiCall(const char* method, char* payload, size_t payloadCapacity,
     return result;
 }
 
-// функция URLencode`ирования сообщения
-String urlEncode(String str) {
-    String encoded = "";
-    for (char c : str) {
-        if (isalnum(c) || c == '-' || c == '_' || c == '.' || c == '~') {
-            encoded += c;
-        } else {
-            char buf[4];
-            snprintf(buf, sizeof(buf), "%%%02X", (uint8_t)c);
-            encoded += buf;
-        }
+// Дописывает форматированную строку в buf, начиная с позиции len
+// Возвращает false и НЕ меняет len, если строка не влезла целиком
+bool appendChecked(char* buf, size_t bufSize, size_t& len, const char* fmt, ...) {
+    size_t avail = bufSize - len;
+
+    va_list args;
+    va_start(args, fmt);
+    int written = vsnprintf(buf + len, avail, fmt, args);
+    va_end(args);
+
+    if (written < 0 || (size_t)written >= avail) {
+        return false;
     }
-    return encoded;
+
+    len += written;
+    return true;
 }
 
 // URLencode`ирование сообщения без String
@@ -188,31 +145,41 @@ size_t urlEncodeTo(const char* src, char* dst, size_t dstSize) {   // src - чт
 
 // Отправка простого текстового сообщения
 VKApiResult VKSendMessage(String data) {
-    
     // --- Собираем тело запроса ---
-    String payload = "peer_id=";
-    payload += VK_PEER_ID;
-    payload += "&message=";
-    payload += urlEncode(data);
-    payload += "&random_id=";
-    payload += String(esp_random() & 0x7FFFFFFF);
+
+    char payload[768];
+    size_t len = snprintf(payload, sizeof(payload), "peer_id=%s&message=", VK_PEER_ID);
+    len += urlEncodeTo(data.c_str(), payload + len, sizeof(payload) - len - VK_SUFFIX_RESERVE);             // записываем закодированную строку прямо в payload. -22 - чтобы следующие параметры гарантированно влезли
+
+    if (!appendChecked(payload, sizeof(payload), len, "&random_id=%u", (unsigned)(esp_random() & 0x7FFFFFFF))) {
+        ESP_LOGE("VK_API", "[VK_API_CALL] Выделенного размера под payload не хватило для полноценной сборки");
+        VKApiResult result;
+        result.ok = false;
+        return result;
+    }
 
     // --- Обращение к API и возврат результата ---
-    return vkApiCall("messages.send", payload, true);
+    return vkApiCall("messages.send", payload, sizeof(payload), true);
 }
 
 // инициализация Long Poll соединения
 bool VKLongPollInit() {
-    String payload = "group_id=";
-    payload += VK_GROUP_ID;
+    char payload[300];
+    snprintf(payload, sizeof(payload), "group_id=%s", VK_GROUP_ID);
 
-    VKApiResult result = vkApiCall("groups.getLongPollServer", payload, false);
+    VKApiResult result = vkApiCall("groups.getLongPollServer", payload, sizeof(payload), false);
 
     if (result.ok)    {
-            server = result.doc["response"]["server"].as<String>();
-            key = result.doc["response"]["key"].as<String>();
-            ts = result.doc["response"]["ts"].as<uint32_t>();
-            if (server != "") return true;
+        const char* s = result.doc["response"]["server"] | "";
+        strncpy(server, s, sizeof(server) - 1);
+        server[sizeof(server) - 1] = '\0';
+
+        const char* k = result.doc["response"]["key"] | "";
+        strncpy(key, k, sizeof(key) - 1);
+        key[sizeof(key) - 1] = '\0';
+
+        ts = result.doc["response"]["ts"].as<uint32_t>();
+        if (server[0] != '\0') return true;
 
         return false;
     }
@@ -224,7 +191,7 @@ void vkLongPollTask(void* params) {
     static uint8_t failed_parsing = 0;  // сколько подряд ошибок поддержания Long Poll сессии произошло
 
     while (true) {
-        if (server == "") {              // инициализация не была запущена ИЛИ мы самостоятельно его инвалидировали при ошибках соединения
+        if (server[0] == '\0') {              // инициализация не была запущена ИЛИ мы самостоятельно его инвалидировали при ошибках соединения
             if (!VKLongPollInit()) {                // если не удалось - попробуем после таймаута
                 vTaskDelay(pdMS_TO_TICKS(7000));
                 continue;
@@ -247,7 +214,7 @@ void vkLongPollTask(void* params) {
 
                 case 2:                     // истек key, нужен новый VKPollInit()
                 case 3:                     // инвалидна вся сессия, инициализируем заново
-                    server = "";            // для 2 и 3 случаев нужна инициализация, для этого сбрасываем сервер
+                    server[0] = '\0';            // для 2 и 3 случаев нужна инициализация, для этого сбрасываем сервер
                     break;
             }
             continue;
@@ -256,7 +223,7 @@ void vkLongPollTask(void* params) {
         if (err)    {
             vTaskDelay(pdMS_TO_TICKS(3000));
             if (++failed_parsing >= 3)  {       // ошибок больше допустимого кол-ва - инвалидируем ранее инициализироанную сессию и прогоняем Init заново
-                server = "";
+                server[0] = '\0';
                 failed_parsing = 0;
             }
             continue;
@@ -298,11 +265,14 @@ void vkLongPollTask(void* params) {
 
 // Long Polling запрос и возврат ответа от сервера
 String VKPoll() {
+    char url[400];
+    snprintf(url, sizeof(url), "%s?act=a_check&key=%s&ts=%u&wait=25", server, key, ts);
+
     WiFiClientSecure client;
     client.setInsecure();
 
     HTTPClient http;
-    http.begin(client, server  + "?act=a_check&key=" + key + "&ts=" + ts + "&wait=25");
+    http.begin(client, url);
     http.setTimeout(30000);
 
     int return_code = http.GET();
@@ -316,65 +286,59 @@ String VKPoll() {
     return "Error, code: " + String(return_code);
 }
 
-// функция построения JSON клавиатуры из текущего состояния Relays[] и auto_mode[]
-String buildKeyboard() {
-    String keyboard = "{\"inline\":true,\"buttons\":[[";
+// Строит JSON-клавиатуру в dst. Возвращает длину, или 0 — если не поместилось.
+size_t buildKeyboardTo(char* dst, size_t dstSize) {
+    size_t len = 0;
+    if (!appendChecked(dst, dstSize, len, "{\"inline\":true,\"buttons\":[[")) return 0;
 
-    // Собираем кнопки управления Реле
     for (uint8_t i = 0; i < 4; i++) {
-        String label = "P" + String(i+1) + "";
-        label += Relays[i] ? "✅" : "❌";
-        //label += "]";
-        String payload = "{\\\"a\\\":\\\"switch_relay\\\",\\\"n\\\":" + String(i) + "}";
-
-        keyboard += "{\"action\":{\"type\":\"callback\",\"label\":\"";
-        keyboard += label;
-        keyboard += "\",\"payload\":\"";
-        keyboard += payload;
-        keyboard += "\"}}";
-
-        if (i < 3) keyboard += ",";
+        const char* icon = Relays[i] ? "✅" : "❌";
+        if (!appendChecked(dst, dstSize, len,
+                "{\"action\":{\"type\":\"callback\",\"label\":\"P%u%s\",\"payload\":\"{\\\"a\\\":\\\"switch_relay\\\",\\\"n\\\":%u}\"}}%s",
+                i + 1, icon, i, (i < 3) ? "," : "")) {
+            ESP_LOGE("VK_API", "buildKeyboardTo: не хватило места в буфере [%u]", (unsigned)dstSize);
+            return 0;
+        }
     }
 
-        keyboard += "],[";
+    if (!appendChecked(dst, dstSize, len, "],[")) return 0;
 
-    // Кнопки переключения режимов работы Реле
     for (uint8_t i = 0; i < 4; i++) {
-        String label = auto_mode[i] ? "авто" : "ручн";
-        String payload = "{\\\"a\\\":\\\"switch_relay_mode\\\",\\\"n\\\":" + String(i) + "}";
-        keyboard += "{\"action\":{\"type\":\"callback\",\"label\":\"";
-        keyboard += label;
-        keyboard += "\",\"payload\":\"";
-        keyboard += payload;
-        keyboard += "\"}}";
-
-        if (i < 3) keyboard += ",";
+        const char* mode = auto_mode[i] ? "авто" : "ручн";
+        if (!appendChecked(dst, dstSize, len,
+                "{\"action\":{\"type\":\"callback\",\"label\":\"%s\",\"payload\":\"{\\\"a\\\":\\\"switch_relay_mode\\\",\\\"n\\\":%u}\"}}%s",
+                mode, i, (i < 3) ? "," : "")) {
+            ESP_LOGE("VK_API", "buildKeyboardTo: не хватило места в буфере [%u]", (unsigned)dstSize);
+            return 0;
+        }
     }
 
-    keyboard += "]]}";
-    return keyboard;
+    if (!appendChecked(dst, dstSize, len, "]]}")) return 0;
+
+    return len;
 }
+
 
 // функция для ответа snackbar-ом на нажатие кнопки
 void VKAnswerCallback(VKEvent &event, String snackbar_text) {
+    char payload[325] = "";
+    char eventData[150] = "";
 
-    String payload = "event_id=", eventData = "{\"type\":\"show_snackbar\",\"text\":\"" + snackbar_text + "\"}";
-    payload += urlEncode(event.event_id);
-    payload += "&user_id=";
-    payload += event.user_id;
-    payload += "&peer_id=";
-    payload += event.peer_id;
-    payload += "&event_data=";
-    payload += urlEncode(eventData);
+    snprintf(eventData, sizeof(eventData), "{\"type\":\"show_snackbar\",\"text\":\"%s\"}", snackbar_text.c_str());
+    size_t len = snprintf(payload, sizeof(payload), "event_id=");
+    len += urlEncodeTo(event.event_id, payload + len, sizeof(payload) - len);
+    len += snprintf(payload + len, sizeof(payload) - len, "&user_id=%d&peer_id=%d&event_data=", event.user_id, event.peer_id);
 
-    VKApiResult result = vkApiCall("messages.sendMessageEventAnswer", payload, true);
+    char encoded_eventData[450] = "";       // худший сценарий: строка полностью из русских символов (x3 первоначального размера после кодирования)
+    urlEncodeTo(eventData, encoded_eventData, sizeof(encoded_eventData));
+    appendChecked(payload, sizeof(payload) - VK_SUFFIX_RESERVE, len, "%s", encoded_eventData);
 
-    // Возможно логика ретраев?
+    VKApiResult result = vkApiCall("messages.sendMessageEventAnswer", payload, sizeof(payload), true);
 }
 
 // функция редактирования сообщений
 void VKEditMessage(String text) {
-    if (!dashboardMsgID) return;                // если переменная не содержат корректного ID - нет смысла пытаться редактировать
+    /*if (!dashboardMsgID) return;                // если переменная не содержат корректного ID - нет смысла пытаться редактировать
 
     String payload = "peer_id=";
     payload += VK_PEER_ID;
@@ -392,7 +356,17 @@ void VKEditMessage(String text) {
     else if (!result.doc["error"].isNull()) {
         int error_code = result.doc["error"]["error_code"];
         if (error_code != 9)   dashboardMsgID = 0;             // 9 = flood control - не пересоздаём, просто подождём
-    }
+    }*/
+
+    if (!dashboardMsgID)    return;
+
+    char payload[1024] = "", urlencoded_keyboard[512] = "";
+    buildKeyboardTo(payload, sizeof(payload));                      // используем как временное хранилище
+
+    size_t keyboard_size = urlEncodeTo(payload, urlencoded_keyboard, sizeof(urlencoded_keyboard));
+    payload[0] = '\0';                                              // очищаем перед повторным использованием
+
+    size_t len = snprintf(payload, sizeof(payload), "peer_id=%s&message_id=%")
 }
 
 String buildDashboardText() {

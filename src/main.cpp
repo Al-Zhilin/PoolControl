@@ -202,12 +202,12 @@ void loop() {
   static uint32_t pool_timer = millis(), ping_timer = millis(), reconnect_timer = millis();
   static bool int_res = !internet, start_update = true;
 
-  static uint32_t log_timer = 0;
+  /*static uint32_t log_timer = 0;
   if (millis() - log_timer >= 20 * 1000) {
     ESP_LOGD("DIAG", "uptime=%lus, freeHeap=%u, maxAlloc=%u, minFreeHeap=%u, rssi=%d",
          millis()/1000, ESP.getFreeHeap(), ESP.getMaxAllocHeap(), ESP.getMinFreeHeap(), WiFi.RSSI());
     log_timer = millis();
-  }
+  }*/
 
   ArduinoOTA.handle();
   LOG_HANDLE();
