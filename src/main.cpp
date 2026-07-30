@@ -217,7 +217,9 @@ void loop() {
   if (xQueueReceive(vkEventQueue, &event, 0)) {                 // Обрабатываем пришедшие события
     if (!strcmp(event.type, "message_new")) {
         if (!strcmp(event.text, "/status")) {
-            VKEditMessage(buildDashboardText());
+            char dash_text[255] = "";
+            buildDashboardTextTo(dash_text, sizeof(dash_text));
+            VKEditMessage(dash_text);
         }
     }
     
@@ -242,7 +244,9 @@ void loop() {
                 }
             }
             else VKSendMessage("Передан некорректный номер Реле для события типа \"" + type + "\"");
-            VKEditMessage(buildDashboardText());
+            char dash_text[255] = "";
+            buildDashboardTextTo(dash_text, sizeof(dash_text));
+            VKEditMessage(dash_text);
         }
     }
   }
@@ -288,7 +292,11 @@ void loop() {
         VKApiResult result = VKSendMessage("Стартовая загрузка...");
         if (result.ok)    dashboardMsgID = result.doc["response"].as<int32_t>();
     }
-    if (dashboardMsgID) VKEditMessage(buildDashboardText());
+    if (dashboardMsgID) {
+        char dash_text[255] = "";
+        buildDashboardTextTo(dash_text, sizeof(dash_text));
+        VKEditMessage(dash_text);
+    }
     else ESP_LOGE("VK_API", "Ошибка получения dashboardMsg!");
   }
 

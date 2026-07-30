@@ -13,6 +13,24 @@ int32_t dashboardMsgID = 0;
 
 String VKPoll();
 
+// Дописывает форматированную строку в buf, начиная с позиции len
+// Возвращает false и НЕ меняет len, если строка не влезла целиком
+bool appendChecked(char* buf, size_t bufSize, size_t& len, const char* fmt, ...) {
+    size_t avail = bufSize - len;
+
+    va_list args;
+    va_start(args, fmt);
+    int written = vsnprintf(buf + len, avail, fmt, args);
+    va_end(args);
+
+    if (written < 0 || (size_t)written >= avail) {
+        return false;
+    }
+
+    len += written;
+    return true;
+}
+
 // Структура ответа функции, работающей с API
 struct VKApiResult {
     bool ok;                        // true, если запрос успешен и API не вернул ошибку
@@ -33,7 +51,7 @@ VKApiResult vkApiCall(const char* method, char* payload, size_t payloadCapacity,
     size_t len = strlen(payload);           // сколько уже записано
 
     if (!appendChecked(payload, payloadCapacity, len, "&access_token=%s&v=5.199", VK_TOKEN)) {
-        ESP_LOGE("VK_API", "[VK_API_CALL] Выделенного размера под payload не хватило для полноценной сборки");
+        ESP_LOGE("VK_API", "[vkApiCall:access_token] Не хватило места в payload");
         result.ok = false;
         return result;
     }
@@ -45,7 +63,7 @@ VKApiResult vkApiCall(const char* method, char* payload, size_t payloadCapacity,
         String returned_body;
         if (isPost) {
             if (snprintf(url, sizeof(url), "https://api.vk.com/method/%s", method) >= sizeof(url)) {
-                ESP_LOGE("VK_API", "При сборке запроса размера встроенного под url буфера [%d] не хватило!", sizeof(url));
+                ESP_LOGE("VK_API", "[vkApiCall:url:POST] Не хватило места в буфере [%d]", sizeof(url));
                 result.ok = false;
                 return result;
             }
@@ -56,7 +74,7 @@ VKApiResult vkApiCall(const char* method, char* payload, size_t payloadCapacity,
 
         else {
             if (snprintf(url, sizeof(url), "https://api.vk.com/method/%s?%s", method, payload) >= sizeof(url)) {
-                ESP_LOGE("VK_API", "При сборке запроса размера встроенного под url буфера [%d] не хватило!", sizeof(url));
+                ESP_LOGE("VK_API", "[vkApiCall:url:GET] Не хватило места в буфере [%d]", sizeof(url));
                 result.ok = false;
                 return result;
             }
@@ -91,24 +109,6 @@ VKApiResult vkApiCall(const char* method, char* payload, size_t payloadCapacity,
     return result;
 }
 
-// Дописывает форматированную строку в buf, начиная с позиции len
-// Возвращает false и НЕ меняет len, если строка не влезла целиком
-bool appendChecked(char* buf, size_t bufSize, size_t& len, const char* fmt, ...) {
-    size_t avail = bufSize - len;
-
-    va_list args;
-    va_start(args, fmt);
-    int written = vsnprintf(buf + len, avail, fmt, args);
-    va_end(args);
-
-    if (written < 0 || (size_t)written >= avail) {
-        return false;
-    }
-
-    len += written;
-    return true;
-}
-
 // URLencode`ирование сообщения без String
 size_t urlEncodeTo(const char* src, char* dst, size_t dstSize) {   // src - что преобразовываем, dst - куда записываем
     if (!dstSize)    return 0;
@@ -123,7 +123,7 @@ size_t urlEncodeTo(const char* src, char* dst, size_t dstSize) {   // src - чт
                 dst[pos++] = c;
             }
             else {
-                ESP_LOGE("VK_API", "Выделенного под URLEncode места не хватило!");
+                ESP_LOGE("VK_API", "[urlEncodeTo] Не хватило места в буфере");
                 break;
             }
 
@@ -133,7 +133,7 @@ size_t urlEncodeTo(const char* src, char* dst, size_t dstSize) {   // src - чт
                 pos += 3;
             }
             else {
-                ESP_LOGE("VK_API", "Выделенного под URLEncode места не хватило!");
+                ESP_LOGE("VK_API", "[urlEncodeTo] Не хватило места в буфере");
                 break;
             }
         }
@@ -152,7 +152,7 @@ VKApiResult VKSendMessage(String data) {
     len += urlEncodeTo(data.c_str(), payload + len, sizeof(payload) - len - VK_SUFFIX_RESERVE);             // записываем закодированную строку прямо в payload. -22 - чтобы следующие параметры гарантированно влезли
 
     if (!appendChecked(payload, sizeof(payload), len, "&random_id=%u", (unsigned)(esp_random() & 0x7FFFFFFF))) {
-        ESP_LOGE("VK_API", "[VK_API_CALL] Выделенного размера под payload не хватило для полноценной сборки");
+        ESP_LOGE("VK_API", "[VKSendMessage:random_id] Не хватило места в payload");
         VKApiResult result;
         result.ok = false;
         return result;
@@ -296,7 +296,7 @@ size_t buildKeyboardTo(char* dst, size_t dstSize) {
         if (!appendChecked(dst, dstSize, len,
                 "{\"action\":{\"type\":\"callback\",\"label\":\"P%u%s\",\"payload\":\"{\\\"a\\\":\\\"switch_relay\\\",\\\"n\\\":%u}\"}}%s",
                 i + 1, icon, i, (i < 3) ? "," : "")) {
-            ESP_LOGE("VK_API", "buildKeyboardTo: не хватило места в буфере [%u]", (unsigned)dstSize);
+            ESP_LOGE("VK_API", "[buildKeyboardTo:relay] Не хватило места в буфере [%u]", (unsigned)dstSize);
             return 0;
         }
     }
@@ -308,7 +308,7 @@ size_t buildKeyboardTo(char* dst, size_t dstSize) {
         if (!appendChecked(dst, dstSize, len,
                 "{\"action\":{\"type\":\"callback\",\"label\":\"%s\",\"payload\":\"{\\\"a\\\":\\\"switch_relay_mode\\\",\\\"n\\\":%u}\"}}%s",
                 mode, i, (i < 3) ? "," : "")) {
-            ESP_LOGE("VK_API", "buildKeyboardTo: не хватило места в буфере [%u]", (unsigned)dstSize);
+            ESP_LOGE("VK_API", "[buildKeyboardTo:mode] Не хватило места в буфере [%u]", (unsigned)dstSize);
             return 0;
         }
     }
@@ -321,7 +321,7 @@ size_t buildKeyboardTo(char* dst, size_t dstSize) {
 
 // функция для ответа snackbar-ом на нажатие кнопки
 void VKAnswerCallback(VKEvent &event, String snackbar_text) {
-    char payload[325] = "";
+    char payload[1024] = "";
     char eventData[150] = "";
 
     snprintf(eventData, sizeof(eventData), "{\"type\":\"show_snackbar\",\"text\":\"%s\"}", snackbar_text.c_str());
@@ -331,73 +331,63 @@ void VKAnswerCallback(VKEvent &event, String snackbar_text) {
 
     char encoded_eventData[450] = "";       // худший сценарий: строка полностью из русских символов (x3 первоначального размера после кодирования)
     urlEncodeTo(eventData, encoded_eventData, sizeof(encoded_eventData));
-    appendChecked(payload, sizeof(payload) - VK_SUFFIX_RESERVE, len, "%s", encoded_eventData);
+    if (!appendChecked(payload, sizeof(payload) - VK_SUFFIX_RESERVE, len, "%s", encoded_eventData)) {
+        ESP_LOGE("VK_API", "[VKAnswerCallback:event_data] Не хватило места в payload");
+        return;
+    }
 
     VKApiResult result = vkApiCall("messages.sendMessageEventAnswer", payload, sizeof(payload), true);
 }
 
 // функция редактирования сообщений
-void VKEditMessage(String text) {
-    /*if (!dashboardMsgID) return;                // если переменная не содержат корректного ID - нет смысла пытаться редактировать
+void VKEditMessage(const char* text) {
+    if (!dashboardMsgID)    return;
 
-    String payload = "peer_id=";
-    payload += VK_PEER_ID;
-    payload += "&message_id=";
-    payload += dashboardMsgID;
-    payload += "&message=";
-    payload += urlEncode(text);
-    payload += "&keyboard=";
-    payload += urlEncode(buildKeyboard());
+    char payload[1024] = "", urlencoded_keyboard[512] = "";
+    size_t keyboard_size = buildKeyboardTo(payload, sizeof(payload));
 
-    VKApiResult result = vkApiCall("messages.edit", payload, true);
+    ESP_LOGE("VK_API", "Размер keyboard: %ld", keyboard_size);
+
+    if (!keyboard_size)     {
+        ESP_LOGE("VK_API", "[VKEditMessage:keyboard_build] Не хватило места в буфере");
+        return;
+    }
+
+    size_t keyboard_size_url = urlEncodeTo(payload, urlencoded_keyboard, sizeof(urlencoded_keyboard));
+    if (keyboard_size_url >= sizeof(urlencoded_keyboard) - 4) {             // записалось под завязку
+        ESP_LOGE("VK_API", "[VKEditMessage:keyboard_encode] Не хватило места в буфере");
+        return;
+    }
+
+    payload[0] = '\0';                                              // очищаем перед повторным использованием
+
+    size_t len = snprintf(payload, sizeof(payload), "peer_id=%s&message_id=%d&message=", VK_PEER_ID, dashboardMsgID);
+    len += urlEncodeTo(text, payload + len, sizeof(payload) - VK_SUFFIX_RESERVE - keyboard_size_url - len);
+    len += snprintf(payload + len, sizeof(payload) - len, "&keyboard=");
+    if (!appendChecked(payload, sizeof(payload), len, "%s", urlencoded_keyboard)) {
+        ESP_LOGE("VK_API", "[VKEditMessage:keyboard_append] Не хватило места в payload");
+        return;
+    }
+
+    VKApiResult result = vkApiCall("messages.edit", payload, sizeof(payload), true);
 
     if (result.httpCode <= 0)   dashboardMsgID = 0;            // сетевая ошибка - сообщение точно нужно пересоздавать
     
     else if (!result.doc["error"].isNull()) {
         int error_code = result.doc["error"]["error_code"];
         if (error_code != 9)   dashboardMsgID = 0;             // 9 = flood control - не пересоздаём, просто подождём
-    }*/
-
-    if (!dashboardMsgID)    return;
-
-    char payload[1024] = "", urlencoded_keyboard[512] = "";
-    buildKeyboardTo(payload, sizeof(payload));                      // используем как временное хранилище
-
-    size_t keyboard_size = urlEncodeTo(payload, urlencoded_keyboard, sizeof(urlencoded_keyboard));
-    payload[0] = '\0';                                              // очищаем перед повторным использованием
-
-    size_t len = snprintf(payload, sizeof(payload), "peer_id=%s&message_id=%")
+    }
 }
 
-String buildDashboardText() {
-    String text = "";
 
-    text += "Воздух: ";
-    text += String(temp[0], 2);
-    text += "°C\n";
-
-    text += "Холодная вода: ";
-    text += String(temp[1], 2);
-    text += "°C\n";
-
-    text += "Теплая вода: ";
-    text += String(temp[2], 2);
-    text += "°C\n";
-
-    text += "Разница: ";
-    text += String(temp[2] - temp[1], 2);
-    text += "°C\n\n";
-
-    // статусы Реле в дашборде - не нужны, т.к. чуть ниже есть кнопки, с такой же информативностью
-    /*for (uint8_t i = 0; i < 4; i++) {
-        text += "Реле ";
-        text += i+1;
-        text += ": ";
-        text += Relays[i] ? "✅" : "❌";
-        text += " | ";
-        text += auto_mode[i] ? "авто" : "ручной";
-        text += "\n";
-    }*/
-
-    return text;
+size_t buildDashboardTextTo(char* dst, size_t dstSize) {
+    size_t len = 0;
+    bool success = appendChecked(dst, dstSize, len, "Воздух: %.2f°C\nХолодная вода: %.2f°C\nТеплая вода: %.2f°C\nРазница: %.2f°C", temp[0], temp[1], temp[2], temp[2] - temp[1]);
+    
+    if (!success) {
+        ESP_LOGE("VK_API", "[buildDashboardTextTo] Не хватило места в буфере");
+        return 0;
+    }
+    
+    return len;
 }
