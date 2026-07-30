@@ -321,15 +321,15 @@ size_t buildKeyboardTo(char* dst, size_t dstSize) {
 
 // функция для ответа snackbar-ом на нажатие кнопки
 void VKAnswerCallback(VKEvent &event, String snackbar_text) {
-    char payload[1024] = "";
-    char eventData[150] = "";
+    char payload[1536] = "";
+    char eventData[256] = "";
 
     snprintf(eventData, sizeof(eventData), "{\"type\":\"show_snackbar\",\"text\":\"%s\"}", snackbar_text.c_str());
     size_t len = snprintf(payload, sizeof(payload), "event_id=");
     len += urlEncodeTo(event.event_id, payload + len, sizeof(payload) - len);
     len += snprintf(payload + len, sizeof(payload) - len, "&user_id=%d&peer_id=%d&event_data=", event.user_id, event.peer_id);
 
-    char encoded_eventData[450] = "";       // худший сценарий: строка полностью из русских символов (x3 первоначального размера после кодирования)
+    char encoded_eventData[768] = "";       // худший сценарий: строка полностью из русских символов (x3 первоначального размера после кодирования)
     urlEncodeTo(eventData, encoded_eventData, sizeof(encoded_eventData));
     if (!appendChecked(payload, sizeof(payload) - VK_SUFFIX_RESERVE, len, "%s", encoded_eventData)) {
         ESP_LOGE("VK_API", "[VKAnswerCallback:event_data] Не хватило места в payload");
@@ -343,19 +343,23 @@ void VKAnswerCallback(VKEvent &event, String snackbar_text) {
 void VKEditMessage(const char* text) {
     if (!dashboardMsgID)    return;
 
-    char payload[1024] = "", urlencoded_keyboard[512] = "";
-    size_t keyboard_size = buildKeyboardTo(payload, sizeof(payload));
+    static char payload[2560] = "", urlencoded_keyboard[1600] = "";
+    payload[0] = '\0';
+    urlencoded_keyboard[0] = '\0';
 
-    ESP_LOGE("VK_API", "Размер keyboard: %ld", keyboard_size);
+    size_t keyboard_size = buildKeyboardTo(payload, sizeof(payload));
 
     if (!keyboard_size)     {
         ESP_LOGE("VK_API", "[VKEditMessage:keyboard_build] Не хватило места в буфере");
+        ESP_LOGE("VK_API", "Размер keyboard: %ld", keyboard_size);
         return;
     }
+
 
     size_t keyboard_size_url = urlEncodeTo(payload, urlencoded_keyboard, sizeof(urlencoded_keyboard));
     if (keyboard_size_url >= sizeof(urlencoded_keyboard) - 4) {             // записалось под завязку
         ESP_LOGE("VK_API", "[VKEditMessage:keyboard_encode] Не хватило места в буфере");
+        ESP_LOGE("VK_API", "Размер keyboard_url: %ld", keyboard_size_url);
         return;
     }
 
