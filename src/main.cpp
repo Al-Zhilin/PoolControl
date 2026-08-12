@@ -221,6 +221,10 @@ void loop() {
             buildDashboardTextTo(dash_text, sizeof(dash_text));
             VKEditMessage(dash_text);
         }
+
+        if (!strcmp(event.text, "/restart")) {
+            ESP.restart();
+        }
     }
     
     else if (!strcmp(event.type, "message_event")) {
